@@ -37,18 +37,6 @@
   background: linear-gradient(180deg, rgba(17, 19, 33, 0.88), rgba(9, 10, 19, 0.9));
 }
 
-.hero-panel {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) 360px;
-  gap: 24px;
-  padding: 32px;
-  border-radius: 28px;
-}
-
-.hero-copy {
-  max-width: 720px;
-}
-
 .eyebrow,
 .label,
 .badge,
@@ -74,7 +62,7 @@ ul {
 }
 
 h1 {
-  font-size: clamp(3rem, 6vw, 5.25rem);
+  font-size: clamp(3rem, 6vw, 5.2rem);
   line-height: 0.95;
 }
 
@@ -84,7 +72,19 @@ h2 {
 }
 
 h3 {
-  font-size: 1.5rem;
+  font-size: 1.45rem;
+}
+
+.hero-panel {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) 360px;
+  gap: 24px;
+  padding: 32px;
+  border-radius: 28px;
+}
+
+.hero-copy {
+  max-width: 760px;
 }
 
 .pitch {
@@ -170,13 +170,24 @@ h3 {
   width: 68px;
   height: 68px;
   border-radius: 22px;
-  background: linear-gradient(180deg, rgba(248, 187, 93, 0.18), rgba(141, 115, 255, 0.3));
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .account-avatar span {
   font-size: 1.7rem;
   font-weight: 900;
+}
+
+.archetype-mage {
+  background: linear-gradient(180deg, rgba(110, 99, 255, 0.28), rgba(96, 196, 255, 0.24));
+}
+
+.archetype-guerrier {
+  background: linear-gradient(180deg, rgba(255, 153, 102, 0.28), rgba(255, 84, 84, 0.24));
+}
+
+.archetype-archer {
+  background: linear-gradient(180deg, rgba(110, 255, 184, 0.2), rgba(120, 217, 112, 0.28));
 }
 
 .account-header strong,
@@ -200,16 +211,21 @@ h3 {
 }
 
 .account-metrics div,
-.hero-summary div {
+.hero-summary div,
+.sim-result-stats span {
   padding: 14px;
   border-radius: 18px;
   background: rgba(255, 255, 255, 0.04);
 }
 
-.hub-grid {
-  grid-template-columns: 320px minmax(0, 1fr);
+.content-grid {
+  display: grid;
   gap: 24px;
   margin-top: 24px;
+}
+
+.hub-grid {
+  grid-template-columns: 320px minmax(0, 1fr);
 }
 
 .left-column {
@@ -294,13 +310,13 @@ h3 {
 
 .hero-summary {
   display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   margin-top: 18px;
 }
 
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-top: 20px;
 }
@@ -349,10 +365,6 @@ h3 {
   padding-top: 6px;
 }
 
-.timeline-card.compact {
-  margin-top: 8px;
-}
-
 .timeline-row {
   display: grid;
   grid-template-columns: 14px 1fr;
@@ -370,13 +382,126 @@ h3 {
 }
 
 .equipment-panel,
-.inventory-panel {
+.inventory-panel,
+.expedition-sim-panel {
   display: grid;
   gap: 22px;
 }
 
-.inventory-panel {
+.inventory-panel,
+.expedition-sim-panel {
   grid-column: 2;
+}
+
+.equipment-hero-layout {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  gap: 18px;
+}
+
+.hero-stage {
+  position: relative;
+  overflow: hidden;
+  min-height: 340px;
+  padding: 18px;
+  border-radius: 26px;
+}
+
+.hero-stage-aura {
+  position: absolute;
+  inset: 20px;
+  border-radius: 999px;
+  filter: blur(28px);
+  opacity: 0.75;
+}
+
+.archetype-mage .hero-stage-aura,
+.archetype-mage.sim-hero .sim-core {
+  background: radial-gradient(circle, rgba(126, 145, 255, 0.8), rgba(70, 200, 255, 0.25) 55%, transparent 70%);
+}
+
+.archetype-guerrier .hero-stage-aura,
+.archetype-guerrier.sim-hero .sim-core {
+  background: radial-gradient(circle, rgba(255, 161, 84, 0.82), rgba(255, 86, 69, 0.25) 55%, transparent 70%);
+}
+
+.archetype-archer .hero-stage-aura,
+.archetype-archer.sim-hero .sim-core {
+  background: radial-gradient(circle, rgba(105, 235, 156, 0.82), rgba(86, 190, 117, 0.24) 55%, transparent 70%);
+}
+
+.hero-stage-body {
+  position: absolute;
+  left: 50%;
+  top: 44%;
+  width: 130px;
+  height: 130px;
+  transform: translate(-50%, -50%);
+}
+
+.hero-stage-core {
+  position: absolute;
+  inset: 24px;
+  border-radius: 30px;
+  background: linear-gradient(180deg, #f7f2ff, #9c82ff);
+  box-shadow: 0 0 0 10px rgba(255, 255, 255, 0.04), 0 0 48px rgba(125, 108, 255, 0.34);
+}
+
+.hero-stage-weapon {
+  position: absolute;
+  left: 78px;
+  top: 6px;
+  width: 14px;
+  height: 110px;
+  border-radius: 99px;
+  background: linear-gradient(180deg, #ffe3a7, #ff9d67);
+}
+
+.archetype-mage .hero-stage-weapon,
+.archetype-mage .sim-weapon {
+  transform: rotate(16deg);
+}
+
+.archetype-guerrier .hero-stage-weapon,
+.archetype-guerrier .sim-weapon {
+  width: 18px;
+  height: 118px;
+  background: linear-gradient(180deg, #fff2da, #ff8b6a);
+  transform: rotate(-18deg);
+}
+
+.archetype-archer .hero-stage-weapon,
+.archetype-archer .sim-weapon {
+  width: 54px;
+  height: 94px;
+  border: 6px solid #8df0ad;
+  background: transparent;
+  border-radius: 60px;
+  transform: rotate(18deg);
+}
+
+.hero-stage-shadow {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: -14px;
+  height: 20px;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  filter: blur(8px);
+}
+
+.hero-stage-copy {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+  display: grid;
+  gap: 6px;
+}
+
+.hero-stage-copy p {
+  color: rgba(237, 232, 255, 0.72);
 }
 
 .equipment-grid {
@@ -399,9 +524,10 @@ h3 {
   text-align: left;
 }
 
-.equip-slot:hover {
-  border-color: rgba(248, 187, 93, 0.28);
-  box-shadow: 0 20px 44px rgba(0, 0, 0, 0.18);
+.equip-slot:hover,
+.inventory-item.selected {
+  border-color: rgba(248, 187, 93, 0.32);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
 }
 
 .equip-icon {
@@ -421,9 +547,96 @@ h3 {
 .equip-copy p,
 .inventory-item p,
 .inspect-summary,
-.inspect-bonus {
+.inspect-bonus,
+.sim-result-card p {
   margin-top: 6px;
   color: rgba(237, 232, 255, 0.66);
+}
+
+.simulation-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 18px;
+}
+
+.simulation-arena {
+  position: relative;
+  overflow: hidden;
+  min-height: 240px;
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at 20% 20%, rgba(80, 134, 255, 0.16), transparent 34%),
+    radial-gradient(circle at 80% 30%, rgba(255, 141, 93, 0.18), transparent 32%),
+    linear-gradient(180deg, #14112a 0%, #0c1020 100%);
+}
+
+.sim-hero {
+  position: absolute;
+  left: 26%;
+  top: 54%;
+  width: 110px;
+  height: 110px;
+  transform: translate(-50%, -50%);
+}
+
+.sim-weapon {
+  position: absolute;
+  left: 66px;
+  top: 8px;
+  width: 14px;
+  height: 92px;
+  border-radius: 99px;
+  background: linear-gradient(180deg, #ffe3a7, #ff9d67);
+}
+
+.sim-core {
+  position: absolute;
+  inset: 26px;
+  border-radius: 28px;
+}
+
+.sim-enemy {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 117, 117, 0.96), rgba(140, 23, 51, 0.96));
+  box-shadow: 0 0 32px rgba(255, 93, 124, 0.2);
+}
+
+.enemy-a {
+  top: 20%;
+  right: 18%;
+}
+
+.enemy-b {
+  right: 10%;
+  bottom: 16%;
+}
+
+.enemy-c {
+  top: 54%;
+  right: 36%;
+  width: 50px;
+  height: 50px;
+}
+
+.sim-result-card {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 20px;
+  border-radius: 24px;
+}
+
+.sim-result-card strong {
+  font-size: 1.35rem;
+}
+
+.sim-result-stats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .inventory-layout {
@@ -449,14 +662,13 @@ h3 {
 }
 
 .inventory-item.selected {
-  border-color: rgba(248, 187, 93, 0.32);
   background: linear-gradient(180deg, rgba(248, 187, 93, 0.1), rgba(255, 255, 255, 0.04));
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
 }
 
 .inventory-topline,
 .inventory-meta,
-.inspect-meta {
+.inspect-meta,
+.delta-row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -491,23 +703,41 @@ h3 {
   line-height: 1.55;
 }
 
-@media (max-width: 1180px) {
+.delta-grid {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.delta-row {
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.delta-row strong {
+  color: #9ef7c5;
+}
+
+@media (max-width: 1220px) {
   .hub-grid {
     grid-template-columns: 1fr;
   }
 
-  .inventory-panel {
+  .inventory-panel,
+  .expedition-sim-panel {
     grid-column: auto;
-  }
-
-  .inventory-layout {
-    grid-template-columns: 1fr;
   }
 }
 
-@media (max-width: 980px) {
+@media (max-width: 1040px) {
   .hero-panel,
-  .panel-heading-row {
+  .panel-heading-row,
+  .equipment-hero-layout,
+  .simulation-grid,
+  .inventory-layout {
     grid-template-columns: 1fr;
     display: grid;
   }
@@ -532,7 +762,9 @@ h3 {
   }
 
   .account-metrics,
-  .stats-grid-four {
+  .stats-grid-four,
+  .hero-summary,
+  .sim-result-stats {
     grid-template-columns: 1fr;
   }
 
