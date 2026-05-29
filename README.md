@@ -41,5 +41,5 @@ Chaque PR fait évoluer la version (`package.json`) et cette version est visible
 
 - shell premium jouable sur navigateur
 - identité visuelle dark-fantasy arcade
-- base de hub + aperçu d’expédition
+- vrai hub joueur avec profil, équipement et inventaire
 - pipeline de déploiement GitHub Pages

@@ -1,43 +1,97 @@
+import { useMemo, useState } from 'react'
 import './App.css'
 import { APP_NAME, APP_TAGLINE } from './config/app'
-import { loadout, stats, timeline } from './data/prototype'
+import {
+  equippedItems,
+  expeditionEvents,
+  inventoryItems,
+  playerProfile,
+  stats,
+} from './data/prototype'
 
 function App() {
+  const [selectedItemId, setSelectedItemId] = useState(inventoryItems[0]?.id ?? '')
+
+  const selectedItem = useMemo(
+    () => inventoryItems.find((item) => item.id === selectedItemId) ?? inventoryItems[0],
+    [selectedItemId],
+  )
+
   return (
     <main className="shell">
       <div className="hud-version">v{__APP_VERSION__}</div>
 
       <section className="hero-panel glass">
         <div className="hero-copy">
-          <p className="eyebrow">Prototype fondateur</p>
+          <p className="eyebrow">Hub joueur — prototype jouable</p>
           <h1>{APP_NAME}</h1>
           <p className="pitch">{APP_TAGLINE}</p>
+
+          <div className="hero-actions">
+            <button type="button" className="primary-button">
+              Lancer l’expédition
+            </button>
+            <button type="button" className="secondary-button">
+              Voir le classement
+            </button>
+          </div>
         </div>
 
-        <div className="hero-status">
-          <div>
-            <span className="label">Héros actif</span>
-            <strong>Lys, niveau 1</strong>
+        <div className="account-card glass-dark">
+          <div className="account-header">
+            <div className="account-avatar">
+              <span>{playerProfile.heroName.slice(0, 1)}</span>
+            </div>
+            <div>
+              <span className="label">Compte joueur</span>
+              <strong>{playerProfile.name}</strong>
+              <p>{playerProfile.title}</p>
+            </div>
           </div>
-          <div>
-            <span className="label">Doctrine</span>
-            <strong>Kite agressif</strong>
+
+          <div className="account-metrics">
+            <div>
+              <span className="label">Rang</span>
+              <strong>{playerProfile.rank}</strong>
+            </div>
+            <div>
+              <span className="label">Meilleure survie</span>
+              <strong>{playerProfile.bestSurvival}</strong>
+            </div>
+            <div>
+              <span className="label">Or</span>
+              <strong>{playerProfile.gold}</strong>
+            </div>
+            <div>
+              <span className="label">Éclats</span>
+              <strong>{playerProfile.shards}</strong>
+            </div>
           </div>
-          <button type="button" className="primary-button">
-            Lancer l’expédition
-          </button>
         </div>
       </section>
 
-      <section className="content-grid">
+      <section className="content-grid hub-grid">
         <aside className="left-column">
-          <article className="panel glass character-card">
+          <article className="panel glass profile-panel">
             <div className="section-title">
-              <span className="badge">Build</span>
-              <h2>Identité par l’équipement</h2>
+              <span className="badge">Profil héros</span>
+              <h2>
+                {playerProfile.heroName}, niveau {playerProfile.level}
+              </h2>
             </div>
 
-            <div className="stats-grid">
+            <div className="hero-summary">
+              <div>
+                <span className="label">Zone favorite</span>
+                <strong>{playerProfile.region}</strong>
+              </div>
+              <div>
+                <span className="label">Doctrine active</span>
+                <strong>{playerProfile.doctrine}</strong>
+              </div>
+            </div>
+
+            <div className="stats-grid stats-grid-four">
               {stats.map((stat) => (
                 <div key={stat.label} className={`stat-card ${stat.accent}`}>
                   <span>{stat.label}</span>
@@ -45,74 +99,117 @@ function App() {
                 </div>
               ))}
             </div>
+          </article>
 
-            <div className="loadout-list">
-              {loadout.map((item) => (
-                <div key={item.slot} className="loadout-row">
-                  <div>
-                    <span className="label">{item.slot}</span>
-                    <strong>{item.name}</strong>
-                  </div>
-                  <span className="chip">{item.tag}</span>
+          <article className="panel glass expedition-panel">
+            <div className="section-title">
+              <span className="badge badge-hot">Journal</span>
+              <h2>Retour d’expédition</h2>
+            </div>
+            <div className="timeline-card compact">
+              {expeditionEvents.map((entry) => (
+                <div key={entry} className="timeline-row">
+                  <span className="timeline-dot"></span>
+                  <p>{entry}</p>
                 </div>
               ))}
             </div>
           </article>
-
-          <article className="panel glass roadmap-card">
-            <div className="section-title">
-              <span className="badge badge-soft">Roadmap</span>
-              <h2>Ce qu’on pose dès la V1</h2>
-            </div>
-            <ul>
-              <li>Compte joueur + sauvegarde de build</li>
-              <li>Expédition auto avec simulation lisible</li>
-              <li>Loot orienté archétypes d’armes</li>
-              <li>Version visible en jeu à chaque PR</li>
-            </ul>
-          </article>
         </aside>
 
-        <section className="panel battle-panel glass" aria-label="Aperçu de l’expédition">
-          <div className="battle-header">
-            <div>
-              <span className="badge badge-hot">Expédition live</span>
-              <h2>Ruines d’ambre — difficulté I</h2>
+        <section className="panel glass equipment-panel">
+          <div className="panel-heading-row">
+            <div className="section-title">
+              <span className="badge badge-soft">Équipement</span>
+              <h2>Slots actifs du héros</h2>
             </div>
-            <div className="battle-meta">
-              <span>Survie estimée · 03:42</span>
-              <span>Placement · Très bon</span>
-            </div>
+            <p className="muted-copy">
+              Ici, on construit la classe du perso sans écran de sélection figé. Le stuff décide.
+            </p>
           </div>
 
-          <div className="battlefield">
-            <div className="aura aura-one"></div>
-            <div className="aura aura-two"></div>
-            <div className="grid-overlay"></div>
-            <div className="hero-avatar">
-              <div className="staff"></div>
-              <div className="hero-core"></div>
-              <div className="hero-shadow"></div>
-            </div>
-            <div className="enemy enemy-one"></div>
-            <div className="enemy enemy-two"></div>
-            <div className="enemy enemy-three"></div>
-            <div className="projectile projectile-one"></div>
-            <div className="projectile projectile-two"></div>
-          </div>
-
-          <div className="timeline-card">
-            {timeline.map((entry) => (
-              <div key={entry} className="timeline-row">
-                <span className="timeline-dot"></span>
-                <p>{entry}</p>
-              </div>
+          <div className="equipment-grid">
+            {equippedItems.map((item) => (
+              <button key={item.slot} type="button" className="equip-slot">
+                <div className="equip-icon">{item.slot.slice(0, 1)}</div>
+                <div className="equip-copy">
+                  <span className="label">{item.slot}</span>
+                  <strong>{item.name}</strong>
+                  <p>{item.bonus}</p>
+                </div>
+                <span className={`rarity-chip rarity-${normalizeRarity(item.rarity)}`}>{item.rarity}</span>
+              </button>
             ))}
+          </div>
+        </section>
+
+        <section className="panel glass inventory-panel">
+          <div className="panel-heading-row">
+            <div className="section-title">
+              <span className="badge">Inventaire</span>
+              <h2>Loot disponible</h2>
+            </div>
+            <p className="muted-copy">Clique un objet pour voir ce qu’il apporterait au build.</p>
+          </div>
+
+          <div className="inventory-layout">
+            <div className="inventory-list">
+              {inventoryItems.map((item) => {
+                const isSelected = item.id === selectedItem?.id
+
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={`inventory-item ${isSelected ? 'selected' : ''}`}
+                    onClick={() => setSelectedItemId(item.id)}
+                  >
+                    <div className="inventory-topline">
+                      <span className={`rarity-chip rarity-${normalizeRarity(item.rarity)}`}>{item.rarity}</span>
+                      <span className="score-chip">Score {item.score}</span>
+                    </div>
+                    <strong>{item.name}</strong>
+                    <div className="inventory-meta">
+                      <span>{item.slot}</span>
+                      <span>{item.tag}</span>
+                    </div>
+                    <p>{item.bonus}</p>
+                  </button>
+                )
+              })}
+            </div>
+
+            {selectedItem ? (
+              <article className="inspect-card glass-dark">
+                <span className={`rarity-chip rarity-${normalizeRarity(selectedItem.rarity)}`}>
+                  {selectedItem.rarity}
+                </span>
+                <h3>{selectedItem.name}</h3>
+                <div className="inspect-meta">
+                  <span>{selectedItem.slot}</span>
+                  <span>{selectedItem.tag}</span>
+                  <span>Score {selectedItem.score}</span>
+                </div>
+                <p className="inspect-bonus">{selectedItem.bonus}</p>
+                <p className="inspect-summary">{selectedItem.summary}</p>
+                <button type="button" className="primary-button full-width">
+                  Équiper à la place
+                </button>
+              </article>
+            ) : null}
           </div>
         </section>
       </section>
     </main>
   )
+}
+
+function normalizeRarity(rarity: string) {
+  return rarity
+    .normalize('NFD')
+    .replace(/[^\w\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .toLowerCase()
 }
 
 export default App
