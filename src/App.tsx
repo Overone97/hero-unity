@@ -30,14 +30,31 @@ type ExpeditionResult = {
   doctrineImpact: string
 }
 
-type BattleEnemy = {
+type TimelineStep = {
+  id: string
+  title: string
+  detail: string
+  state: 'pending' | 'active' | 'done'
+}
+
+type LiveEnemy = {
   id: string
   x: number
   y: number
+  hp: number
+  maxHp: number
   size: number
 }
 
-type BattleSnapshot = {
+type LiveProjectile = {
+  id: string
+  x: number
+  y: number
+  tx: number
+  ty: number
+}
+
+type LiveBattle = {
   heroX: number
   heroY: number
   heroHP: number
@@ -46,16 +63,10 @@ type BattleSnapshot = {
   elapsedLabel: string
   kills: number
   stage: number
-  enemies: BattleEnemy[]
+  enemies: LiveEnemy[]
+  projectiles: LiveProjectile[]
   floatingText: string
   state: 'running' | 'dying' | 'finished'
-}
-
-type TimelineStep = {
-  id: string
-  title: string
-  detail: string
-  state: 'pending' | 'active' | 'done'
 }
 
 function App() {
@@ -68,10 +79,20 @@ function App() {
   const [timelineSteps, setTimelineSteps] = useState<TimelineStep[]>(buildIdleTimeline())
   const [isSimulating, setIsSimulating] = useState(false)
   const [showExpeditionWindow, setShowExpeditionWindow] = useState(false)
-  const [battle, setBattle] = useState<BattleSnapshot | null>(null)
+  const [battle, setBattle] = useState<LiveBattle | null>(null)
 
   const battleTimerRef = useRef<number | null>(null)
   const finishTimerRef = useRef<number | null>(null)
+  const battleStateRef = useRef<{
+    tick: number
+    maxTicks: number
+    result: ExpeditionResult | null
+    enemies: LiveEnemy[]
+    projectiles: LiveProjectile[]
+    nextProjectileId: number
+    nextEnemyId: number
+    killCount: number
+  } | null>(null)
 
   const selectedItem = useMemo(
     () => inventory.find((item) => item.id === selectedItemId) ?? inventory[0] ?? null,
@@ -118,11 +139,7 @@ function App() {
   const buildPower = totalStats.power + totalStats.range + totalStats.survival + totalStats.mobility
   const survivalPercent = Math.min(100, Math.round((profile.bestSurvival / 420) * 100))
 
-  useEffect(() => {
-    return () => {
-      clearAllTimers()
-    }
-  }, [])
+  useEffect(() => () => clearAllTimers(), [])
 
   function clearAllTimers() {
     if (battleTimerRef.current) {
@@ -152,7 +169,6 @@ function App() {
         ...next,
       ]
     })
-
   }
 
   function handleLaunchExpedition() {
@@ -167,89 +183,171 @@ function App() {
       doctrine: selectedDoctrine,
     })
 
+    const maxTicks = Math.max(42, Math.min(80, Math.floor(result.survivalSeconds / 3)))
+    const enemies = spawnEnemies(4, 0)
+
+    battleStateRef.current = {
+      tick: 0,
+      maxTicks,
+      result,
+      enemies,
+      projectiles: [],
+      nextProjectileId: 0,
+      nextEnemyId: enemies.length,
+      killCount: 0,
+    }
+
     setShowExpeditionWindow(true)
     setIsSimulating(true)
     setLastResult(null)
-    setTimelineSteps(buildAnimatedTimeline(result, selectedDoctrine))
-
-    const durationMs = Math.min(7800, Math.max(4200, result.survivalSeconds * 18))
-    const steps = Math.max(22, Math.floor(durationMs / 180))
-    let tick = 0
+    setTimelineSteps(buildAnimatedTimeline(result, selectedDoctrine).map((step, index) => ({
+      ...step,
+      state: index === 0 ? 'active' : 'pending',
+    })))
 
     setBattle({
-      heroX: 18,
-      heroY: 58,
+      heroX: 24,
+      heroY: 56,
       heroHP: 100,
       heroFacing: 'right',
       attackFlash: false,
       elapsedLabel: '00:00',
       kills: 0,
       stage: 1,
-      enemies: buildEnemyPack(3),
+      enemies,
+      projectiles: [],
       floatingText: 'Déploiement',
       state: 'running',
     })
 
-    battleTimerRef.current = window.setInterval(() => {
-      tick += 1
-      const progress = Math.min(1, tick / steps)
-      const heroX = 18 + Math.sin(progress * 6) * 6 + progress * 50
-      const heroY = 58 + Math.sin(progress * 12) * 4
-      const heroHP = Math.max(0, 100 - Math.round(progress * 100))
-      const kills = Math.min(result.kills, Math.round(result.kills * progress))
-      const stage = Math.min(result.stageReached, Math.max(1, Math.ceil(result.stageReached * progress)))
-      const secondMark = Math.round(result.survivalSeconds * progress)
-      const floatingText =
-        progress < 0.25
-          ? 'Ouverture du combat'
-          : progress < 0.55
-            ? `Combo x${Math.max(2, Math.floor(kills / 10) + 1)}`
-            : progress < 0.8
-              ? `Palier ${stage}`
-              : 'Le héros flanche…'
+    battleTimerRef.current = window.setInterval(runBattleTick, 110)
+  }
 
-      setBattle({
-        heroX,
-        heroY,
-        heroHP,
-        heroFacing: progress > 0.72 ? 'left' : 'right',
-        attackFlash: tick % 2 === 0,
-        elapsedLabel: formatDuration(secondMark),
-        kills,
-        stage,
-        enemies: buildEnemyPack(Math.max(2, 4 - Math.floor(progress * 2)), progress),
-        floatingText,
-        state: progress >= 0.9 ? 'dying' : 'running',
+  function runBattleTick() {
+    const state = battleStateRef.current
+    if (!state || !state.result) return
+
+    state.tick += 1
+    const progress = Math.min(1, state.tick / state.maxTicks)
+    const result = state.result
+    const stage = Math.max(1, Math.min(result.stageReached, 1 + Math.floor(progress * result.stageReached)))
+    const elapsedSeconds = Math.round(result.survivalSeconds * progress)
+    const heroX = 22 + progress * 44 + Math.sin(state.tick / 5) * 3
+    const heroY = 54 + Math.sin(state.tick / 3.5) * 5
+    const heroHP = Math.max(0, 100 - Math.round(progress * 100))
+
+    if (state.tick % 4 === 0 && state.enemies.length > 0) {
+      const target = state.enemies[state.tick % state.enemies.length]
+      state.projectiles.push({
+        id: `p-${state.nextProjectileId++}`,
+        x: heroX + 2,
+        y: heroY - 2,
+        tx: target.x,
+        ty: target.y,
       })
+    }
 
-      setTimelineSteps((current) =>
-        current.map((step, index) => {
-          const threshold = (index + 1) / current.length
-          if (progress >= threshold) return { ...step, state: 'done' }
-          if (progress >= threshold - 0.18) return { ...step, state: 'active' }
-          return { ...step, state: 'pending' }
-        }),
-      )
+    state.projectiles = state.projectiles
+      .map((projectile) => {
+        const dx = projectile.tx - projectile.x
+        const dy = projectile.ty - projectile.y
+        const distance = Math.max(1, Math.hypot(dx, dy))
+        const step = 6 + totalStats.range * 0.08
+        return {
+          ...projectile,
+          x: projectile.x + (dx / distance) * step,
+          y: projectile.y + (dy / distance) * step,
+        }
+      })
+      .filter((projectile) => projectile.x < 110 && projectile.y > -10 && projectile.y < 110)
 
-      if (tick >= steps) {
-        clearAllTimers()
-        setBattle((current) =>
-          current
-            ? {
-                ...current,
-                heroHP: 0,
-                attackFlash: false,
-                floatingText: 'Défaite',
-                elapsedLabel: formatDuration(result.survivalSeconds),
-                kills: result.kills,
-                stage: result.stageReached,
-                state: 'finished',
-              }
-            : current,
-        )
-        finalizeRun(result)
+    const updatedEnemies: LiveEnemy[] = []
+    const remainingProjectiles: LiveProjectile[] = []
+
+    for (const projectile of state.projectiles) {
+      let hit = false
+      for (const enemy of state.enemies) {
+        const hitDistance = Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y)
+        if (!hit && hitDistance < enemy.size * 0.18 + 2) {
+          enemy.hp -= 22 + totalStats.power * 0.7
+          hit = true
+        }
       }
-    }, 180)
+      if (!hit) remainingProjectiles.push(projectile)
+    }
+
+    for (const enemy of state.enemies) {
+      const pushX = enemy.x - progress * 8 - Math.sin((state.tick + enemy.size) / 7)
+      const pushY = enemy.y + Math.cos((state.tick + enemy.size) / 9) * 1.8
+      if (enemy.hp <= 0) {
+        state.killCount += 1
+        continue
+      }
+      updatedEnemies.push({ ...enemy, x: pushX, y: pushY })
+    }
+
+    if (updatedEnemies.length < 3) {
+      const refill = spawnEnemies(1 + ((state.tick / 9) % 2), progress, state.nextEnemyId)
+      state.nextEnemyId += refill.length
+      updatedEnemies.push(...refill)
+    }
+
+    state.enemies = updatedEnemies
+    state.projectiles = remainingProjectiles
+
+    const floatingText =
+      progress < 0.18
+        ? 'Engagement'
+        : progress < 0.45
+          ? `Combo x${Math.max(2, Math.floor(state.killCount / 3) + 1)}`
+          : progress < 0.72
+            ? `Palier ${stage}`
+            : progress < 0.92
+              ? 'La pression monte'
+              : 'Dernier souffle'
+
+    setBattle({
+      heroX,
+      heroY,
+      heroHP,
+      heroFacing: progress > 0.78 ? 'left' : 'right',
+      attackFlash: state.tick % 2 === 0,
+      elapsedLabel: formatDuration(elapsedSeconds),
+      kills: Math.min(result.kills, state.killCount),
+      stage,
+      enemies: updatedEnemies,
+      projectiles: remainingProjectiles,
+      floatingText,
+      state: progress >= 0.93 ? 'dying' : 'running',
+    })
+
+    setTimelineSteps((current) =>
+      current.map((step, index) => {
+        const threshold = (index + 1) / current.length
+        if (progress >= threshold) return { ...step, state: 'done' }
+        if (progress >= threshold - 0.18) return { ...step, state: 'active' }
+        return { ...step, state: 'pending' }
+      }),
+    )
+
+    if (state.tick >= state.maxTicks) {
+      clearAllTimers()
+      setBattle((current) =>
+        current
+          ? {
+              ...current,
+              heroHP: 0,
+              attackFlash: false,
+              elapsedLabel: formatDuration(result.survivalSeconds),
+              kills: result.kills,
+              stage: result.stageReached,
+              floatingText: 'Défaite',
+              state: 'finished',
+            }
+          : current,
+      )
+      finalizeRun(result)
+    }
   }
 
   function finalizeRun(result: ExpeditionResult) {
@@ -295,8 +393,8 @@ function App() {
           <div className="menu-copy">
             <p className="eyebrow">Menu principal</p>
             <h1>{APP_NAME}</h1>
-            <p className="pitch game-pitch">
-              Monte ton build, choisis une doctrine, puis balance ton héros dans l’arène jusqu’à ce qu’il se fasse ouvrir.
+            <p className="game-pitch">
+              Monte ton build, choisis une doctrine, puis balance ton héros dans l’arène jusqu’à la mort.
             </p>
 
             <div className="hero-actions">
@@ -306,11 +404,9 @@ function App() {
                 onClick={handleLaunchExpedition}
                 disabled={isSimulating}
               >
-                {isSimulating ? 'Expédition en cours…' : 'Jouer une expédition'}
+                {isSimulating ? 'Combat en direct…' : 'Jouer une expédition'}
               </button>
-              <button type="button" className="secondary-button">
-                Classement mondial
-              </button>
+              <button type="button" className="secondary-button">Classement mondial</button>
             </div>
           </div>
         </div>
@@ -333,7 +429,7 @@ function App() {
 
             <div className="hero-summary">
               <div><span className="label">Zone favorite</span><strong>{profile.region}</strong></div>
-              <div><span className="label">Puissance de build</span><strong>{buildPower}</strong></div>
+              <div><span className="label">Puissance</span><strong>{buildPower}</strong></div>
               <div><span className="label">Or</span><strong>{profile.gold}</strong></div>
               <div><span className="label">Éclats</span><strong>{profile.shards}</strong></div>
             </div>
@@ -382,7 +478,7 @@ function App() {
               <span className="badge badge-soft">Équipement</span>
               <h2>Build actuel</h2>
             </div>
-            <p className="muted-copy">On garde la lisibilité, mais avec une présentation plus menu de jeu.</p>
+            <p className="muted-copy">Moins dashboard, plus sélection de build de jeu vidéo.</p>
           </div>
 
           <div className="equipment-grid">
@@ -406,7 +502,7 @@ function App() {
               <span className="badge badge-hot">Expédition</span>
               <h2>Retour de run</h2>
             </div>
-            <p className="muted-copy">La fenêtre de combat montre maintenant le héros bouger, attaquer et mourir.</p>
+            <p className="muted-copy">La scène de combat tourne maintenant comme un vrai petit combat live.</p>
           </div>
 
           <div className="simulation-grid">
@@ -428,7 +524,7 @@ function App() {
                 <>
                   <strong>{lastResult.outcomeLabel}</strong>
                   <p className="highlight-line">{formatDuration(lastResult.survivalSeconds)} de survie</p>
-                  <div className="sim-result-stats readable">
+                  <div className="sim-result-stats">
                     <span>Palier {lastResult.stageReached}</span>
                     <span>{lastResult.kills} kills</span>
                     <span>+{lastResult.goldEarned} or</span>
@@ -450,7 +546,7 @@ function App() {
               ) : (
                 <>
                   <strong>Prêt pour le prochain run</strong>
-                  <p>Lance une expédition pour ouvrir la fenêtre de combat.</p>
+                  <p>Lance une expédition pour ouvrir un vrai combat live.</p>
                 </>
               )}
             </div>
@@ -463,7 +559,7 @@ function App() {
               <span className="badge">Inventaire</span>
               <h2>Loot disponible</h2>
             </div>
-            <p className="muted-copy">Équipe un item pour changer ton archétype, tes stats et ta survie.</p>
+            <p className="muted-copy">Équipe un item pour changer ton style, tes stats et ta survie.</p>
           </div>
 
           <div className="inventory-layout">
@@ -526,9 +622,13 @@ function App() {
             <div className="expedition-window-head">
               <div>
                 <span className="label">Fenêtre d’expédition</span>
-                <h2>{profile.heroName} dans les Ruines d’ambre</h2>
+                <h2>{profile.heroName} — combat live</h2>
               </div>
-              <button type="button" className="close-button" onClick={() => !isSimulating && setShowExpeditionWindow(false)}>
+              <button
+                type="button"
+                className="close-button"
+                onClick={() => !isSimulating && setShowExpeditionWindow(false)}
+              >
                 {isSimulating ? 'Combat…' : 'Fermer'}
               </button>
             </div>
@@ -551,6 +651,16 @@ function App() {
                     key={enemy.id}
                     className="battle-enemy"
                     style={{ left: `${enemy.x}%`, top: `${enemy.y}%`, width: `${enemy.size}px`, height: `${enemy.size}px` }}
+                  >
+                    <div className="enemy-hp-bar"><div style={{ width: `${(enemy.hp / enemy.maxHp) * 100}%` }}></div></div>
+                  </div>
+                ))}
+
+                {battle.projectiles.map((projectile) => (
+                  <div
+                    key={projectile.id}
+                    className={`battle-projectile projectile-${normalizeClassName(archetype)}`}
+                    style={{ left: `${projectile.x}%`, top: `${projectile.y}%` }}
                   ></div>
                 ))}
 
@@ -566,6 +676,7 @@ function App() {
                     <span>Temps {battle.elapsedLabel}</span>
                     <span>Kills {battle.kills}</span>
                     <span>Palier {battle.stage}</span>
+                    <span>Doctrine {selectedDoctrine.name}</span>
                   </div>
                 </div>
 
@@ -598,26 +709,28 @@ function buildIdleTimeline(): TimelineStep[] {
   return [
     { id: 'idle-1', title: 'Chargement du héros', detail: 'Le build attend dans le menu principal.', state: 'done' },
     { id: 'idle-2', title: 'Choix de doctrine', detail: 'Détermine le style du prochain run.', state: 'done' },
-    { id: 'idle-3', title: 'Ouverture de fenêtre', detail: 'Le prochain lancement affichera le combat en direct.', state: 'active' },
+    { id: 'idle-3', title: 'Combat live', detail: 'Le prochain lancement ouvrira le combat en direct.', state: 'active' },
   ]
 }
 
 function buildAnimatedTimeline(result: ExpeditionResult, doctrine: Doctrine): TimelineStep[] {
   return [
-    { id: 'step-1', title: 'Déploiement', detail: `${doctrine.name} enclenchée.`, state: 'active' },
-    { id: 'step-2', title: 'Premier contact', detail: `${Math.floor(result.kills * 0.28)} ennemis tombent vite.`, state: 'pending' },
+    { id: 'step-1', title: 'Déploiement', detail: `${doctrine.name} enclenchée.`, state: 'pending' },
+    { id: 'step-2', title: 'Nettoyage', detail: `${Math.floor(result.kills * 0.28)} ennemis tombent vite.`, state: 'pending' },
     { id: 'step-3', title: 'Montée en tension', detail: `Le héros grimpe jusqu’au palier ${Math.max(2, result.stageReached - 1)}.`, state: 'pending' },
     { id: 'step-4', title: 'Moment critique', detail: result.doctrineImpact, state: 'pending' },
     { id: 'step-5', title: 'Dernier souffle', detail: `${result.loot.name} sauvé avant la mort.`, state: 'pending' },
   ]
 }
 
-function buildEnemyPack(count: number, progress = 0) {
+function spawnEnemies(count: number, progress = 0, startIndex = 0): LiveEnemy[] {
   return Array.from({ length: count }, (_, index) => ({
-    id: `enemy-${index}`,
-    x: 62 + index * 9 - progress * 8,
-    y: 28 + ((index * 17) % 38),
+    id: `enemy-${startIndex + index}`,
+    x: 66 + index * 8 - progress * 4,
+    y: 26 + ((index * 19) % 42),
     size: 34 + ((index + 1) % 3) * 8,
+    hp: 70 + ((index + 1) % 3) * 18,
+    maxHp: 70 + ((index + 1) % 3) * 18,
   }))
 }
 
@@ -666,7 +779,9 @@ function simulateExpedition({
       doctrine.survivalBonus,
   )
   const stageReached = Math.max(3, Math.floor(survivalSeconds / 40))
-  const kills = Math.floor(survivalSeconds * (archetype === 'Guerrier' ? 0.72 : archetype === 'Mage' ? 0.66 : 0.79))
+  const kills = Math.floor(
+    survivalSeconds * (archetype === 'Guerrier' ? 0.72 : archetype === 'Mage' ? 0.66 : 0.79),
+  )
   const goldEarned = 18 + Math.floor(survivalSeconds / 7)
   const shardsEarned = 2 + Math.floor(stageReached / 2)
   const loot = generateLoot(archetype, totalStats, inventoryCount, doctrine)
