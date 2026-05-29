@@ -43,6 +43,7 @@ Chaque PR fait évoluer la version (`package.json`) et cette version est visible
 - identité visuelle dark-fantasy arcade
 - vrai hub joueur avec profil, équipement et inventaire interactif
 - expédition auto simulée avec timeline animée
+- fenêtre d’expédition avec héros visible en déplacement/combat
 - choix de doctrine de combat
 - premier système de loot
 - pipeline de déploiement GitHub Pages

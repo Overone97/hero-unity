@@ -1,11 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
-import { APP_NAME, APP_TAGLINE } from './config/app'
+import { APP_NAME } from './config/app'
 import {
   baseStats,
   doctrines,
   equippedItems as initialEquippedItems,
-  expeditionEvents,
   inventoryItems as initialInventoryItems,
   lootTable,
   playerProfile as initialPlayerProfile,
@@ -31,6 +30,27 @@ type ExpeditionResult = {
   doctrineImpact: string
 }
 
+type BattleEnemy = {
+  id: string
+  x: number
+  y: number
+  size: number
+}
+
+type BattleSnapshot = {
+  heroX: number
+  heroY: number
+  heroHP: number
+  heroFacing: 'left' | 'right'
+  attackFlash: boolean
+  elapsedLabel: string
+  kills: number
+  stage: number
+  enemies: BattleEnemy[]
+  floatingText: string
+  state: 'running' | 'dying' | 'finished'
+}
+
 type TimelineStep = {
   id: string
   title: string
@@ -44,11 +64,14 @@ function App() {
   const [inventory, setInventory] = useState<InventoryItem[]>(initialInventoryItems)
   const [selectedItemId, setSelectedItemId] = useState(initialInventoryItems[0]?.id ?? '')
   const [selectedDoctrineId, setSelectedDoctrineId] = useState(doctrines[0].id)
-  const [expeditionLog, setExpeditionLog] = useState<string[]>(expeditionEvents)
   const [lastResult, setLastResult] = useState<ExpeditionResult | null>(null)
   const [timelineSteps, setTimelineSteps] = useState<TimelineStep[]>(buildIdleTimeline())
   const [isSimulating, setIsSimulating] = useState(false)
-  const timerRef = useRef<number | null>(null)
+  const [showExpeditionWindow, setShowExpeditionWindow] = useState(false)
+  const [battle, setBattle] = useState<BattleSnapshot | null>(null)
+
+  const battleTimerRef = useRef<number | null>(null)
+  const finishTimerRef = useRef<number | null>(null)
 
   const selectedItem = useMemo(
     () => inventory.find((item) => item.id === selectedItemId) ?? inventory[0] ?? null,
@@ -93,14 +116,24 @@ function App() {
   )
 
   const buildPower = totalStats.power + totalStats.range + totalStats.survival + totalStats.mobility
+  const survivalPercent = Math.min(100, Math.round((profile.bestSurvival / 420) * 100))
 
   useEffect(() => {
     return () => {
-      if (timerRef.current) {
-        window.clearInterval(timerRef.current)
-      }
+      clearAllTimers()
     }
   }, [])
+
+  function clearAllTimers() {
+    if (battleTimerRef.current) {
+      window.clearInterval(battleTimerRef.current)
+      battleTimerRef.current = null
+    }
+    if (finishTimerRef.current) {
+      window.clearTimeout(finishTimerRef.current)
+      finishTimerRef.current = null
+    }
+  }
 
   function handleEquipSelected() {
     if (!selectedItem) return
@@ -113,30 +146,19 @@ function App() {
 
     setInventory((current) => {
       const next = current.filter((item) => item.id !== selectedItem.id)
-
-      if (previous) {
-        return [
-          {
-            ...previous,
-            summary: `Ancien équipement retiré du héros. ${previous.bonus}.`,
-          },
-          ...next,
-        ]
-      }
-
-      return next
+      if (!previous) return next
+      return [
+        { ...previous, summary: `Ancien équipement retiré du héros. ${previous.bonus}.` },
+        ...next,
+      ]
     })
 
-    setExpeditionLog((current) => [
-      `Équipé: ${selectedItem.name} sur le slot ${selectedItem.slot}`,
-      `Archétype actuel: ${selectedItem.archetype ?? archetype}`,
-      `Doctrine conservée: ${selectedDoctrine.name}`,
-      ...current.slice(0, 4),
-    ])
   }
 
   function handleLaunchExpedition() {
     if (isSimulating) return
+
+    clearAllTimers()
 
     const result = simulateExpedition({
       archetype,
@@ -145,144 +167,175 @@ function App() {
       doctrine: selectedDoctrine,
     })
 
-    const animatedSteps = buildAnimatedTimeline(result, selectedDoctrine)
-    setTimelineSteps(
-      animatedSteps.map((step, index) => ({
-        ...step,
-        state: index === 0 ? 'active' : 'pending',
-      })),
-    )
+    setShowExpeditionWindow(true)
     setIsSimulating(true)
     setLastResult(null)
+    setTimelineSteps(buildAnimatedTimeline(result, selectedDoctrine))
 
-    let currentStep = 0
-    timerRef.current = window.setInterval(() => {
-      currentStep += 1
+    const durationMs = Math.min(7800, Math.max(4200, result.survivalSeconds * 18))
+    const steps = Math.max(22, Math.floor(durationMs / 180))
+    let tick = 0
+
+    setBattle({
+      heroX: 18,
+      heroY: 58,
+      heroHP: 100,
+      heroFacing: 'right',
+      attackFlash: false,
+      elapsedLabel: '00:00',
+      kills: 0,
+      stage: 1,
+      enemies: buildEnemyPack(3),
+      floatingText: 'Déploiement',
+      state: 'running',
+    })
+
+    battleTimerRef.current = window.setInterval(() => {
+      tick += 1
+      const progress = Math.min(1, tick / steps)
+      const heroX = 18 + Math.sin(progress * 6) * 6 + progress * 50
+      const heroY = 58 + Math.sin(progress * 12) * 4
+      const heroHP = Math.max(0, 100 - Math.round(progress * 100))
+      const kills = Math.min(result.kills, Math.round(result.kills * progress))
+      const stage = Math.min(result.stageReached, Math.max(1, Math.ceil(result.stageReached * progress)))
+      const secondMark = Math.round(result.survivalSeconds * progress)
+      const floatingText =
+        progress < 0.25
+          ? 'Ouverture du combat'
+          : progress < 0.55
+            ? `Combo x${Math.max(2, Math.floor(kills / 10) + 1)}`
+            : progress < 0.8
+              ? `Palier ${stage}`
+              : 'Le héros flanche…'
+
+      setBattle({
+        heroX,
+        heroY,
+        heroHP,
+        heroFacing: progress > 0.72 ? 'left' : 'right',
+        attackFlash: tick % 2 === 0,
+        elapsedLabel: formatDuration(secondMark),
+        kills,
+        stage,
+        enemies: buildEnemyPack(Math.max(2, 4 - Math.floor(progress * 2)), progress),
+        floatingText,
+        state: progress >= 0.9 ? 'dying' : 'running',
+      })
 
       setTimelineSteps((current) =>
-        current.map((step, index) => ({
-          ...step,
-          state: index < currentStep ? 'done' : index === currentStep ? 'active' : 'pending',
-        })),
+        current.map((step, index) => {
+          const threshold = (index + 1) / current.length
+          if (progress >= threshold) return { ...step, state: 'done' }
+          if (progress >= threshold - 0.18) return { ...step, state: 'active' }
+          return { ...step, state: 'pending' }
+        }),
       )
 
-      if (currentStep >= animatedSteps.length) {
-        if (timerRef.current) {
-          window.clearInterval(timerRef.current)
-          timerRef.current = null
-        }
-
-        setIsSimulating(false)
-        setTimelineSteps(animatedSteps.map((step) => ({ ...step, state: 'done' })))
-
-        setProfile((current) => ({
-          ...current,
-          doctrine: selectedDoctrine.name,
-          gold: current.gold + result.goldEarned,
-          shards: current.shards + result.shardsEarned,
-          bestSurvival: Math.max(current.bestSurvival, result.survivalSeconds),
-          rank: rankFromSeconds(Math.max(current.bestSurvival, result.survivalSeconds)),
-        }))
-
-        setInventory((current) => {
-          const next = [result.loot, ...current]
-          setSelectedItemId(result.loot.id)
-          return next
-        })
-
-        setExpeditionLog(result.lines)
-        setLastResult(result)
+      if (tick >= steps) {
+        clearAllTimers()
+        setBattle((current) =>
+          current
+            ? {
+                ...current,
+                heroHP: 0,
+                attackFlash: false,
+                floatingText: 'Défaite',
+                elapsedLabel: formatDuration(result.survivalSeconds),
+                kills: result.kills,
+                stage: result.stageReached,
+                state: 'finished',
+              }
+            : current,
+        )
+        finalizeRun(result)
       }
-    }, 650)
+    }, 180)
   }
 
-  const survivalPercent = Math.min(100, Math.round((profile.bestSurvival / 420) * 100))
+  function finalizeRun(result: ExpeditionResult) {
+    setProfile((current) => ({
+      ...current,
+      doctrine: selectedDoctrine.name,
+      gold: current.gold + result.goldEarned,
+      shards: current.shards + result.shardsEarned,
+      bestSurvival: Math.max(current.bestSurvival, result.survivalSeconds),
+      rank: rankFromSeconds(Math.max(current.bestSurvival, result.survivalSeconds)),
+    }))
+
+    setInventory((current) => {
+      const next = [result.loot, ...current]
+      setSelectedItemId(result.loot.id)
+      return next
+    })
+
+    setLastResult(result)
+    setIsSimulating(false)
+    setTimelineSteps((current) => current.map((step) => ({ ...step, state: 'done' })))
+
+    finishTimerRef.current = window.setTimeout(() => {
+      setShowExpeditionWindow(false)
+    }, 1800)
+  }
 
   return (
     <main className="shell">
       <div className="hud-version">v{__APP_VERSION__}</div>
 
-      <section className="hero-panel glass">
-        <div className="hero-copy">
-          <p className="eyebrow">Hub joueur — prototype jouable</p>
-          <h1>{APP_NAME}</h1>
-          <p className="pitch">{APP_TAGLINE}</p>
+      <section className="game-hero-shell glass">
+        <div className="menu-scene">
+          <div className={`menu-hero-card archetype-${normalizeClassName(archetype)}`}>
+            <div className="menu-hero-glow"></div>
+            <div className="menu-hero-body">
+              <div className="menu-hero-weapon"></div>
+              <div className="menu-hero-core"></div>
+            </div>
+            <div className="menu-hero-floor"></div>
+          </div>
 
-          <div className="hero-actions">
-            <button
-              type="button"
-              className="primary-button"
-              onClick={handleLaunchExpedition}
-              disabled={isSimulating}
-            >
-              {isSimulating ? 'Expédition en cours…' : 'Lancer l’expédition auto'}
-            </button>
-            <button type="button" className="secondary-button">
-              Voir le classement
-            </button>
+          <div className="menu-copy">
+            <p className="eyebrow">Menu principal</p>
+            <h1>{APP_NAME}</h1>
+            <p className="pitch game-pitch">
+              Monte ton build, choisis une doctrine, puis balance ton héros dans l’arène jusqu’à ce qu’il se fasse ouvrir.
+            </p>
+
+            <div className="hero-actions">
+              <button
+                type="button"
+                className="primary-button"
+                onClick={handleLaunchExpedition}
+                disabled={isSimulating}
+              >
+                {isSimulating ? 'Expédition en cours…' : 'Jouer une expédition'}
+              </button>
+              <button type="button" className="secondary-button">
+                Classement mondial
+              </button>
+            </div>
           </div>
         </div>
 
-        <div className="account-card glass-dark">
-          <div className="account-header">
-            <div className={`account-avatar archetype-${normalizeClassName(archetype)}`}>
-              <span>{profile.heroName.slice(0, 1)}</span>
-            </div>
-            <div>
-              <span className="label">Compte joueur</span>
-              <strong>{profile.name}</strong>
-              <p>{profile.title}</p>
-            </div>
-          </div>
-
-          <div className="account-metrics">
-            <div>
-              <span className="label">Rang</span>
-              <strong>{profile.rank}</strong>
-            </div>
-            <div>
-              <span className="label">Meilleure survie</span>
-              <strong>{formatDuration(profile.bestSurvival)}</strong>
-            </div>
-            <div>
-              <span className="label">Or</span>
-              <strong>{profile.gold}</strong>
-            </div>
-            <div>
-              <span className="label">Éclats</span>
-              <strong>{profile.shards}</strong>
-            </div>
-          </div>
+        <div className="top-strip">
+          <div className="top-pill"><span>Héros</span><strong>{profile.heroName}</strong></div>
+          <div className="top-pill"><span>Archétype</span><strong>{archetype}</strong></div>
+          <div className="top-pill"><span>Doctrine</span><strong>{selectedDoctrine.name}</strong></div>
+          <div className="top-pill"><span>Record</span><strong>{formatDuration(profile.bestSurvival)}</strong></div>
         </div>
       </section>
 
-      <section className="content-grid hub-grid">
+      <section className="content-grid game-layout">
         <aside className="left-column">
           <article className="panel glass profile-panel">
             <div className="section-title">
               <span className="badge">Profil héros</span>
-              <h2>
-                {profile.heroName}, niveau {profile.level}
-              </h2>
+              <h2>{profile.heroName}, niveau {profile.level}</h2>
             </div>
 
             <div className="hero-summary">
-              <div>
-                <span className="label">Zone favorite</span>
-                <strong>{profile.region}</strong>
-              </div>
-              <div>
-                <span className="label">Doctrine active</span>
-                <strong>{selectedDoctrine.name}</strong>
-              </div>
-              <div>
-                <span className="label">Archétype</span>
-                <strong>{archetype}</strong>
-              </div>
-              <div>
-                <span className="label">Puissance de build</span>
-                <strong>{buildPower}</strong>
-              </div>
+              <div><span className="label">Zone favorite</span><strong>{profile.region}</strong></div>
+              <div><span className="label">Puissance de build</span><strong>{buildPower}</strong></div>
+              <div><span className="label">Or</span><strong>{profile.gold}</strong></div>
+              <div><span className="label">Éclats</span><strong>{profile.shards}</strong></div>
             </div>
 
             <div className="stats-grid stats-grid-four">
@@ -298,7 +351,7 @@ function App() {
           <article className="panel glass doctrine-panel">
             <div className="section-title">
               <span className="badge badge-soft">Doctrine</span>
-              <h2>Choix de combat</h2>
+              <h2>Style de combat</h2>
             </div>
             <div className="doctrine-list">
               {doctrines.map((doctrine) => {
@@ -321,106 +374,52 @@ function App() {
               })}
             </div>
           </article>
-
-          <article className="panel glass expedition-panel">
-            <div className="section-title">
-              <span className="badge badge-hot">Journal</span>
-              <h2>Retour d’expédition</h2>
-            </div>
-            <div className="timeline-card compact">
-              {expeditionLog.map((entry) => (
-                <div key={entry} className="timeline-row">
-                  <span className="timeline-dot"></span>
-                  <p>{entry}</p>
-                </div>
-              ))}
-            </div>
-          </article>
         </aside>
 
         <section className="panel glass equipment-panel">
           <div className="panel-heading-row">
             <div className="section-title">
               <span className="badge badge-soft">Équipement</span>
-              <h2>Slots actifs du héros</h2>
+              <h2>Build actuel</h2>
             </div>
-            <p className="muted-copy">
-              Le stuff change vraiment le build maintenant: stats, style et archétype visuel.
-            </p>
+            <p className="muted-copy">On garde la lisibilité, mais avec une présentation plus menu de jeu.</p>
           </div>
 
-          <div className="equipment-hero-layout">
-            <div className={`hero-stage glass-dark archetype-${normalizeClassName(archetype)}`}>
-              <div className="hero-stage-aura"></div>
-              <div className="hero-stage-body">
-                <div className="hero-stage-weapon"></div>
-                <div className="hero-stage-core"></div>
-                <div className="hero-stage-shadow"></div>
-              </div>
-              <div className="hero-stage-copy">
-                <span className="label">Silhouette active</span>
-                <strong>{archetype}</strong>
-                <p>
-                  {archetype === 'Mage'
-                    ? 'Fragile, longue portée, gros burst.'
-                    : archetype === 'Guerrier'
-                      ? 'Corps à corps solide, pression constante.'
-                      : 'Mobile, précis, très bon pour les runs nerveux.'}
-                </p>
-              </div>
-            </div>
-
-            <div className="equipment-grid">
-              {equipped.map((item) => (
-                <button key={item.slot} type="button" className="equip-slot">
-                  <div className="equip-icon">{item.slot.slice(0, 1)}</div>
-                  <div className="equip-copy">
-                    <span className="label">{item.slot}</span>
-                    <strong>{item.name}</strong>
-                    <p>{item.bonus}</p>
-                  </div>
-                  <span className={`rarity-chip rarity-${normalizeRarity(item.rarity)}`}>{item.rarity}</span>
-                </button>
-              ))}
-            </div>
+          <div className="equipment-grid">
+            {equipped.map((item) => (
+              <button key={item.slot} type="button" className="equip-slot">
+                <div className="equip-icon">{item.slot.slice(0, 1)}</div>
+                <div className="equip-copy">
+                  <span className="label">{item.slot}</span>
+                  <strong>{item.name}</strong>
+                  <p>{item.bonus}</p>
+                </div>
+                <span className={`rarity-chip rarity-${normalizeRarity(item.rarity)}`}>{item.rarity}</span>
+              </button>
+            ))}
           </div>
         </section>
 
         <section className="panel glass expedition-sim-panel">
           <div className="panel-heading-row">
             <div className="section-title">
-              <span className="badge badge-hot">Simulation</span>
-              <h2>Expédition auto animée</h2>
+              <span className="badge badge-hot">Expédition</span>
+              <h2>Retour de run</h2>
             </div>
-            <p className="muted-copy">
-              La doctrine influe maintenant sur le run, et la timeline raconte visuellement la progression.
-            </p>
+            <p className="muted-copy">La fenêtre de combat montre maintenant le héros bouger, attaquer et mourir.</p>
           </div>
 
           <div className="simulation-grid">
-            <div className="simulation-stack">
-              <div className="simulation-arena glass-dark">
-                <div className={`sim-pulse ${isSimulating ? 'running' : ''}`}></div>
-                <div className="sim-enemy enemy-a"></div>
-                <div className="sim-enemy enemy-b"></div>
-                <div className="sim-enemy enemy-c"></div>
-                <div className={`sim-hero archetype-${normalizeClassName(archetype)} ${isSimulating ? 'running' : ''}`}>
-                  <div className="sim-weapon"></div>
-                  <div className="sim-core"></div>
-                </div>
-              </div>
-
-              <div className="animated-timeline glass-dark">
-                {timelineSteps.map((step) => (
-                  <div key={step.id} className={`animated-step ${step.state}`}>
-                    <span className="animated-dot"></span>
-                    <div>
-                      <strong>{step.title}</strong>
-                      <p>{step.detail}</p>
-                    </div>
+            <div className="animated-timeline glass-dark">
+              {timelineSteps.map((step) => (
+                <div key={step.id} className={`animated-step ${step.state}`}>
+                  <span className="animated-dot"></span>
+                  <div>
+                    <strong>{step.title}</strong>
+                    <p>{step.detail}</p>
                   </div>
-                ))}
-              </div>
+                </div>
+              ))}
             </div>
 
             <div className="sim-result-card glass-dark">
@@ -437,17 +436,11 @@ function App() {
                   </div>
                   <div className="result-bars">
                     <div>
-                      <div className="bar-header">
-                        <span>Danger</span>
-                        <strong>{lastResult.dangerRating}</strong>
-                      </div>
+                      <div className="bar-header"><span>Danger</span><strong>{lastResult.dangerRating}</strong></div>
                       <div className="progress-track"><div className="progress-fill danger" style={{ width: `${Math.min(100, lastResult.stageReached * 12)}%` }}></div></div>
                     </div>
                     <div>
-                      <div className="bar-header">
-                        <span>Record joueur</span>
-                        <strong>{survivalPercent}%</strong>
-                      </div>
+                      <div className="bar-header"><span>Record joueur</span><strong>{survivalPercent}%</strong></div>
                       <div className="progress-track"><div className="progress-fill record" style={{ width: `${survivalPercent}%` }}></div></div>
                     </div>
                   </div>
@@ -456,8 +449,8 @@ function App() {
                 </>
               ) : (
                 <>
-                  <strong>Aucune expédition lancée</strong>
-                  <p>Choisis une doctrine puis lance le run pour voir une timeline animée.</p>
+                  <strong>Prêt pour le prochain run</strong>
+                  <p>Lance une expédition pour ouvrir la fenêtre de combat.</p>
                 </>
               )}
             </div>
@@ -470,14 +463,13 @@ function App() {
               <span className="badge">Inventaire</span>
               <h2>Loot disponible</h2>
             </div>
-            <p className="muted-copy">Clique un objet puis équipe-le pour remplacer le slot correspondant.</p>
+            <p className="muted-copy">Équipe un item pour changer ton archétype, tes stats et ta survie.</p>
           </div>
 
           <div className="inventory-layout">
             <div className="inventory-list">
               {inventory.map((item) => {
                 const isSelected = item.id === selectedItem?.id
-
                 return (
                   <button
                     key={item.id}
@@ -502,9 +494,7 @@ function App() {
 
             {selectedItem ? (
               <article className="inspect-card glass-dark">
-                <span className={`rarity-chip rarity-${normalizeRarity(selectedItem.rarity)}`}>
-                  {selectedItem.rarity}
-                </span>
+                <span className={`rarity-chip rarity-${normalizeRarity(selectedItem.rarity)}`}>{selectedItem.rarity}</span>
                 <h3>{selectedItem.name}</h3>
                 <div className="inspect-meta">
                   <span>{selectedItem.slot}</span>
@@ -529,26 +519,106 @@ function App() {
           </div>
         </section>
       </section>
+
+      {showExpeditionWindow && battle ? (
+        <div className="expedition-overlay">
+          <div className="expedition-window glass-dark">
+            <div className="expedition-window-head">
+              <div>
+                <span className="label">Fenêtre d’expédition</span>
+                <h2>{profile.heroName} dans les Ruines d’ambre</h2>
+              </div>
+              <button type="button" className="close-button" onClick={() => !isSimulating && setShowExpeditionWindow(false)}>
+                {isSimulating ? 'Combat…' : 'Fermer'}
+              </button>
+            </div>
+
+            <div className="battle-window-grid">
+              <div className={`battle-window-scene archetype-${normalizeClassName(archetype)} ${battle.state}`}>
+                <div className="battle-scene-grid"></div>
+                <div className="battle-floating-text">{battle.floatingText}</div>
+
+                <div
+                  className={`battle-hero ${battle.attackFlash ? 'attack' : ''} facing-${battle.heroFacing}`}
+                  style={{ left: `${battle.heroX}%`, top: `${battle.heroY}%` }}
+                >
+                  <div className="battle-hero-weapon"></div>
+                  <div className="battle-hero-core"></div>
+                </div>
+
+                {battle.enemies.map((enemy) => (
+                  <div
+                    key={enemy.id}
+                    className="battle-enemy"
+                    style={{ left: `${enemy.x}%`, top: `${enemy.y}%`, width: `${enemy.size}px`, height: `${enemy.size}px` }}
+                  ></div>
+                ))}
+
+                <div className="battle-vfx vfx-one"></div>
+                <div className="battle-vfx vfx-two"></div>
+              </div>
+
+              <div className="battle-sidepanel">
+                <div className="battle-stats-box glass">
+                  <span className="label">État du run</span>
+                  <strong>{battle.state === 'finished' ? 'Héros vaincu' : 'Combat en cours'}</strong>
+                  <div className="battle-mini-stats">
+                    <span>Temps {battle.elapsedLabel}</span>
+                    <span>Kills {battle.kills}</span>
+                    <span>Palier {battle.stage}</span>
+                  </div>
+                </div>
+
+                <div className="battle-stats-box glass">
+                  <div className="bar-header"><span>Vie</span><strong>{battle.heroHP}%</strong></div>
+                  <div className="progress-track"><div className="progress-fill hp" style={{ width: `${battle.heroHP}%` }}></div></div>
+                </div>
+
+                <div className="battle-stats-box glass">
+                  <span className="label">Équipement visible</span>
+                  <div className="battle-loadout-list">
+                    {equipped.slice(0, 4).map((item) => (
+                      <div key={item.id} className="battle-loadout-row">
+                        <span>{item.slot}</span>
+                        <strong>{item.name}</strong>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   )
 }
 
 function buildIdleTimeline(): TimelineStep[] {
   return [
-    { id: 'idle-1', title: 'Préparation', detail: 'Le héros attend les ordres du hub.', state: 'done' },
-    { id: 'idle-2', title: 'Doctrine', detail: 'Choisis un style de combat pour influencer le run.', state: 'done' },
-    { id: 'idle-3', title: 'Expédition', detail: 'Le prochain lancement animera cette timeline.', state: 'active' },
+    { id: 'idle-1', title: 'Chargement du héros', detail: 'Le build attend dans le menu principal.', state: 'done' },
+    { id: 'idle-2', title: 'Choix de doctrine', detail: 'Détermine le style du prochain run.', state: 'done' },
+    { id: 'idle-3', title: 'Ouverture de fenêtre', detail: 'Le prochain lancement affichera le combat en direct.', state: 'active' },
   ]
 }
 
 function buildAnimatedTimeline(result: ExpeditionResult, doctrine: Doctrine): TimelineStep[] {
   return [
-    { id: 'step-1', title: 'Déploiement', detail: `${doctrine.name} enclenchée dans les Ruines d’ambre.`, state: 'pending' },
-    { id: 'step-2', title: 'Premier contact', detail: `${Math.floor(result.kills * 0.28)} ennemis balayés proprement.`, state: 'pending' },
-    { id: 'step-3', title: 'Montée en pression', detail: `Le héros atteint le palier ${Math.max(2, result.stageReached - 1)}.`, state: 'pending' },
-    { id: 'step-4', title: 'Pic de run', detail: `${result.doctrineImpact}`, state: 'pending' },
-    { id: 'step-5', title: 'Chute et butin', detail: `${result.loot.name} récupéré avant le retour au hub.`, state: 'pending' },
+    { id: 'step-1', title: 'Déploiement', detail: `${doctrine.name} enclenchée.`, state: 'active' },
+    { id: 'step-2', title: 'Premier contact', detail: `${Math.floor(result.kills * 0.28)} ennemis tombent vite.`, state: 'pending' },
+    { id: 'step-3', title: 'Montée en tension', detail: `Le héros grimpe jusqu’au palier ${Math.max(2, result.stageReached - 1)}.`, state: 'pending' },
+    { id: 'step-4', title: 'Moment critique', detail: result.doctrineImpact, state: 'pending' },
+    { id: 'step-5', title: 'Dernier souffle', detail: `${result.loot.name} sauvé avant la mort.`, state: 'pending' },
   ]
+}
+
+function buildEnemyPack(count: number, progress = 0) {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `enemy-${index}`,
+    x: 62 + index * 9 - progress * 8,
+    y: 28 + ((index * 17) % 38),
+    size: 34 + ((index + 1) % 3) * 8,
+  }))
 }
 
 function stripSummary(item: InventoryItem): EquippedItem {
@@ -604,10 +674,10 @@ function simulateExpedition({
   const outcomeLabel = stageReached >= 8 ? 'Run monstrueux' : stageReached >= 6 ? 'Run solide' : 'Run correct'
   const doctrineImpact =
     doctrine.id === 'bastion-prudent'
-      ? 'La doctrine prudente a clairement prolongé la survie.'
+      ? 'La prudence a tenu le héros debout plus longtemps.'
       : doctrine.id === 'chasseur-fulgurant'
-        ? 'La mobilité de la doctrine a accéléré le rythme du run.'
-        : 'La pression offensive a permis un bon nettoyage des vagues.'
+        ? 'La mobilité a rendu le run beaucoup plus nerveux.'
+        : 'La pression offensive a nettoyé les vagues rapidement.'
 
   return {
     survivalSeconds,
