@@ -110,12 +110,14 @@ h3 {
 .primary-button,
 .secondary-button,
 .equip-slot,
-.inventory-item {
+.inventory-item,
+.doctrine-card {
   transition:
     transform 160ms ease,
     box-shadow 160ms ease,
     border-color 160ms ease,
-    background 160ms ease;
+    background 160ms ease,
+    opacity 160ms ease;
 }
 
 .primary-button,
@@ -137,8 +139,14 @@ h3 {
 .primary-button:hover,
 .equip-slot:hover,
 .inventory-item:hover,
-.secondary-button:hover {
+.secondary-button:hover,
+.doctrine-card:hover {
   transform: translateY(-2px);
+}
+
+button:disabled {
+  opacity: 0.7;
+  cursor: wait;
 }
 
 .secondary-button {
@@ -194,7 +202,9 @@ h3 {
 .hero-summary strong,
 .account-metrics strong,
 .equip-copy strong,
-.inventory-item strong {
+.inventory-item strong,
+.doctrine-topline strong,
+.animated-step strong {
   display: block;
   margin-top: 4px;
 }
@@ -343,20 +353,43 @@ h3 {
   font-size: 1.6rem;
 }
 
-.stat-card.violet {
-  outline: 1px solid rgba(166, 120, 255, 0.2);
+.stat-card.violet { outline: 1px solid rgba(166, 120, 255, 0.2); }
+.stat-card.cyan { outline: 1px solid rgba(104, 224, 255, 0.2); }
+.stat-card.gold { outline: 1px solid rgba(245, 187, 93, 0.2); }
+.stat-card.emerald { outline: 1px solid rgba(52, 211, 153, 0.22); }
+
+.doctrine-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 6px;
 }
 
-.stat-card.cyan {
-  outline: 1px solid rgba(104, 224, 255, 0.2);
+.doctrine-card {
+  padding: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  text-align: left;
 }
 
-.stat-card.gold {
-  outline: 1px solid rgba(245, 187, 93, 0.2);
+.doctrine-card.active {
+  border-color: rgba(103, 200, 255, 0.35);
+  background: linear-gradient(180deg, rgba(103, 200, 255, 0.12), rgba(255, 255, 255, 0.04));
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.18);
 }
 
-.stat-card.emerald {
-  outline: 1px solid rgba(52, 211, 153, 0.22);
+.doctrine-topline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.doctrine-card p {
+  margin-top: 8px;
+  color: rgba(237, 232, 255, 0.72);
 }
 
 .timeline-card {
@@ -373,7 +406,8 @@ h3 {
   color: rgba(237, 232, 255, 0.76);
 }
 
-.timeline-dot {
+.timeline-dot,
+.animated-dot {
   width: 10px;
   height: 10px;
   margin-top: 0.4rem;
@@ -383,7 +417,8 @@ h3 {
 
 .equipment-panel,
 .inventory-panel,
-.expedition-sim-panel {
+.expedition-sim-panel,
+.doctrine-panel {
   display: grid;
   gap: 22px;
 }
@@ -416,19 +451,11 @@ h3 {
 }
 
 .archetype-mage .hero-stage-aura,
-.archetype-mage.sim-hero .sim-core {
-  background: radial-gradient(circle, rgba(126, 145, 255, 0.8), rgba(70, 200, 255, 0.25) 55%, transparent 70%);
-}
-
+.archetype-mage.sim-hero .sim-core { background: radial-gradient(circle, rgba(126, 145, 255, 0.8), rgba(70, 200, 255, 0.25) 55%, transparent 70%); }
 .archetype-guerrier .hero-stage-aura,
-.archetype-guerrier.sim-hero .sim-core {
-  background: radial-gradient(circle, rgba(255, 161, 84, 0.82), rgba(255, 86, 69, 0.25) 55%, transparent 70%);
-}
-
+.archetype-guerrier.sim-hero .sim-core { background: radial-gradient(circle, rgba(255, 161, 84, 0.82), rgba(255, 86, 69, 0.25) 55%, transparent 70%); }
 .archetype-archer .hero-stage-aura,
-.archetype-archer.sim-hero .sim-core {
-  background: radial-gradient(circle, rgba(105, 235, 156, 0.82), rgba(86, 190, 117, 0.24) 55%, transparent 70%);
-}
+.archetype-archer.sim-hero .sim-core { background: radial-gradient(circle, rgba(105, 235, 156, 0.82), rgba(86, 190, 117, 0.24) 55%, transparent 70%); }
 
 .hero-stage-body {
   position: absolute;
@@ -458,27 +485,11 @@ h3 {
 }
 
 .archetype-mage .hero-stage-weapon,
-.archetype-mage .sim-weapon {
-  transform: rotate(16deg);
-}
-
+.archetype-mage .sim-weapon { transform: rotate(16deg); }
 .archetype-guerrier .hero-stage-weapon,
-.archetype-guerrier .sim-weapon {
-  width: 18px;
-  height: 118px;
-  background: linear-gradient(180deg, #fff2da, #ff8b6a);
-  transform: rotate(-18deg);
-}
-
+.archetype-guerrier .sim-weapon { width: 18px; height: 118px; background: linear-gradient(180deg, #fff2da, #ff8b6a); transform: rotate(-18deg); }
 .archetype-archer .hero-stage-weapon,
-.archetype-archer .sim-weapon {
-  width: 54px;
-  height: 94px;
-  border: 6px solid #8df0ad;
-  background: transparent;
-  border-radius: 60px;
-  transform: rotate(18deg);
-}
+.archetype-archer .sim-weapon { width: 54px; height: 94px; border: 6px solid #8df0ad; background: transparent; border-radius: 60px; transform: rotate(18deg); }
 
 .hero-stage-shadow {
   position: absolute;
@@ -500,9 +511,13 @@ h3 {
   gap: 6px;
 }
 
-.hero-stage-copy p {
-  color: rgba(237, 232, 255, 0.72);
-}
+.hero-stage-copy p,
+.animated-step p,
+.equip-copy p,
+.inventory-item p,
+.inspect-summary,
+.inspect-bonus,
+.sim-result-card p { color: rgba(237, 232, 255, 0.7); }
 
 .equipment-grid {
   display: grid;
@@ -540,23 +555,17 @@ h3 {
   font-weight: 900;
 }
 
-.equip-copy {
-  flex: 1;
-}
-
-.equip-copy p,
-.inventory-item p,
-.inspect-summary,
-.inspect-bonus,
-.sim-result-card p {
-  margin-top: 6px;
-  color: rgba(237, 232, 255, 0.66);
-}
+.equip-copy { flex: 1; }
 
 .simulation-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 18px;
+}
+
+.simulation-stack {
+  display: grid;
+  gap: 16px;
 }
 
 .simulation-arena {
@@ -570,6 +579,16 @@ h3 {
     linear-gradient(180deg, #14112a 0%, #0c1020 100%);
 }
 
+.sim-pulse {
+  position: absolute;
+  inset: 18% 32% 18% 14%;
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(255,255,255,0.08), transparent 60%);
+  opacity: 0;
+}
+
+.sim-pulse.running { animation: pulseArena 1.2s ease-in-out infinite; }
+
 .sim-hero {
   position: absolute;
   left: 26%;
@@ -578,6 +597,8 @@ h3 {
   height: 110px;
   transform: translate(-50%, -50%);
 }
+
+.sim-hero.running { animation: simHeroRun 1s ease-in-out infinite; }
 
 .sim-weapon {
   position: absolute;
@@ -602,41 +623,99 @@ h3 {
   border-radius: 24px;
   background: linear-gradient(180deg, rgba(255, 117, 117, 0.96), rgba(140, 23, 51, 0.96));
   box-shadow: 0 0 32px rgba(255, 93, 124, 0.2);
+  animation: enemyBob 1.8s ease-in-out infinite;
 }
 
-.enemy-a {
-  top: 20%;
-  right: 18%;
+.enemy-a { top: 20%; right: 18%; }
+.enemy-b { right: 10%; bottom: 16%; animation-delay: 0.4s; }
+.enemy-c { top: 54%; right: 36%; width: 50px; height: 50px; animation-delay: 0.7s; }
+
+.animated-timeline {
+  display: grid;
+  gap: 12px;
+  padding: 18px;
+  border-radius: 24px;
 }
 
-.enemy-b {
-  right: 10%;
-  bottom: 16%;
+.animated-step {
+  display: grid;
+  grid-template-columns: 14px 1fr;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  opacity: 0.45;
+  background: rgba(255,255,255,0.03);
 }
 
-.enemy-c {
-  top: 54%;
-  right: 36%;
-  width: 50px;
-  height: 50px;
+.animated-step.active {
+  opacity: 1;
+  background: rgba(103, 200, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(103, 200, 255, 0.18);
+  animation: activeStepGlow 1s ease-in-out infinite alternate;
+}
+
+.animated-step.done {
+  opacity: 0.95;
+}
+
+.animated-step.done .animated-dot {
+  box-shadow: 0 0 16px rgba(248, 187, 93, 0.42);
 }
 
 .sim-result-card {
   display: grid;
   align-content: start;
-  gap: 10px;
+  gap: 12px;
   padding: 20px;
   border-radius: 24px;
 }
 
-.sim-result-card strong {
-  font-size: 1.35rem;
+.sim-result-card strong { font-size: 1.35rem; }
+
+.highlight-line {
+  font-size: 1.15rem;
+  font-weight: 800;
+  color: #f6d365;
 }
 
 .sim-result-stats {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 10px;
+}
+
+.result-bars {
+  display: grid;
+  gap: 12px;
+}
+
+.bar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  color: rgba(237,232,255,0.78);
+  font-size: 0.92rem;
+}
+
+.progress-track {
+  overflow: hidden;
+  height: 10px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.08);
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.progress-fill.danger {
+  background: linear-gradient(90deg, #ff8d5d, #ff5d7c);
+}
+
+.progress-fill.record {
+  background: linear-gradient(90deg, #67c8ff, #8d73ff);
 }
 
 .inventory-layout {
@@ -699,9 +778,7 @@ h3 {
   color: #f6d365;
 }
 
-.inspect-summary {
-  line-height: 1.55;
-}
+.inspect-summary { line-height: 1.55; }
 
 .delta-grid {
   display: grid;
@@ -717,19 +794,32 @@ h3 {
   background: rgba(255, 255, 255, 0.04);
 }
 
-.delta-row strong {
-  color: #9ef7c5;
+.delta-row strong { color: #9ef7c5; }
+
+@keyframes simHeroRun {
+  0%, 100% { transform: translate(-50%, -50%) translateX(0); }
+  50% { transform: translate(-47%, -53%) translateX(8px); }
+}
+
+@keyframes pulseArena {
+  0%, 100% { opacity: 0.2; transform: scale(0.92); }
+  50% { opacity: 0.7; transform: scale(1.04); }
+}
+
+@keyframes enemyBob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+@keyframes activeStepGlow {
+  from { box-shadow: inset 0 0 0 1px rgba(103, 200, 255, 0.18), 0 0 0 rgba(103,200,255,0); }
+  to { box-shadow: inset 0 0 0 1px rgba(103, 200, 255, 0.28), 0 0 20px rgba(103,200,255,0.12); }
 }
 
 @media (max-width: 1220px) {
-  .hub-grid {
-    grid-template-columns: 1fr;
-  }
-
+  .hub-grid { grid-template-columns: 1fr; }
   .inventory-panel,
-  .expedition-sim-panel {
-    grid-column: auto;
-  }
+  .expedition-sim-panel { grid-column: auto; }
 }
 
 @media (max-width: 1040px) {
@@ -737,38 +827,20 @@ h3 {
   .panel-heading-row,
   .equipment-hero-layout,
   .simulation-grid,
-  .inventory-layout {
-    grid-template-columns: 1fr;
-    display: grid;
-  }
-
+  .inventory-layout { grid-template-columns: 1fr; display: grid; }
   .equipment-grid,
-  .inventory-list {
-    grid-template-columns: 1fr;
-  }
+  .inventory-list { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
-  .shell {
-    padding-inline: 16px;
-    padding-top: 76px;
-  }
-
+  .shell { padding-inline: 16px; padding-top: 76px; }
   .hero-panel,
   .panel,
-  .account-card {
-    padding: 20px;
-    border-radius: 22px;
-  }
-
+  .account-card,
+  .animated-timeline { padding: 20px; border-radius: 22px; }
   .account-metrics,
   .stats-grid-four,
   .hero-summary,
-  .sim-result-stats {
-    grid-template-columns: 1fr;
-  }
-
-  .hero-actions {
-    flex-direction: column;
-  }
+  .sim-result-stats { grid-template-columns: 1fr; }
+  .hero-actions { flex-direction: column; }
 }

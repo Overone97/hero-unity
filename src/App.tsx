@@ -1,8 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { APP_NAME, APP_TAGLINE } from './config/app'
 import {
   baseStats,
+  doctrines,
   equippedItems as initialEquippedItems,
   expeditionEvents,
   inventoryItems as initialInventoryItems,
@@ -10,6 +11,7 @@ import {
   playerProfile as initialPlayerProfile,
   statMeta,
   type Archetype,
+  type Doctrine,
   type EquippedItem,
   type InventoryItem,
   type PlayerProfile,
@@ -24,6 +26,16 @@ type ExpeditionResult = {
   shardsEarned: number
   loot: InventoryItem
   lines: string[]
+  dangerRating: string
+  outcomeLabel: string
+  doctrineImpact: string
+}
+
+type TimelineStep = {
+  id: string
+  title: string
+  detail: string
+  state: 'pending' | 'active' | 'done'
 }
 
 function App() {
@@ -31,12 +43,21 @@ function App() {
   const [equipped, setEquipped] = useState<EquippedItem[]>(initialEquippedItems)
   const [inventory, setInventory] = useState<InventoryItem[]>(initialInventoryItems)
   const [selectedItemId, setSelectedItemId] = useState(initialInventoryItems[0]?.id ?? '')
+  const [selectedDoctrineId, setSelectedDoctrineId] = useState(doctrines[0].id)
   const [expeditionLog, setExpeditionLog] = useState<string[]>(expeditionEvents)
   const [lastResult, setLastResult] = useState<ExpeditionResult | null>(null)
+  const [timelineSteps, setTimelineSteps] = useState<TimelineStep[]>(buildIdleTimeline())
+  const [isSimulating, setIsSimulating] = useState(false)
+  const timerRef = useRef<number | null>(null)
 
   const selectedItem = useMemo(
     () => inventory.find((item) => item.id === selectedItemId) ?? inventory[0] ?? null,
     [inventory, selectedItemId],
+  )
+
+  const selectedDoctrine = useMemo<Doctrine>(
+    () => doctrines.find((doctrine) => doctrine.id === selectedDoctrineId) ?? doctrines[0],
+    [selectedDoctrineId],
   )
 
   const archetype = useMemo<Archetype>(() => {
@@ -53,8 +74,12 @@ function App() {
       }
     }
 
+    for (const key of Object.keys(selectedDoctrine.modifiers) as StatKey[]) {
+      aggregated[key] += selectedDoctrine.modifiers[key]
+    }
+
     return aggregated
-  }, [equipped])
+  }, [equipped, selectedDoctrine])
 
   const statCards = useMemo(
     () =>
@@ -68,6 +93,14 @@ function App() {
   )
 
   const buildPower = totalStats.power + totalStats.range + totalStats.survival + totalStats.mobility
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) {
+        window.clearInterval(timerRef.current)
+      }
+    }
+  }, [])
 
   function handleEquipSelected() {
     if (!selectedItem) return
@@ -97,30 +130,73 @@ function App() {
     setExpeditionLog((current) => [
       `Équipé: ${selectedItem.name} sur le slot ${selectedItem.slot}`,
       `Archétype actuel: ${selectedItem.archetype ?? archetype}`,
-      ...current.slice(0, 5),
+      `Doctrine conservée: ${selectedDoctrine.name}`,
+      ...current.slice(0, 4),
     ])
   }
 
   function handleLaunchExpedition() {
-    const result = simulateExpedition({ archetype, totalStats, inventoryCount: inventory.length })
+    if (isSimulating) return
 
-    setProfile((current) => ({
-      ...current,
-      gold: current.gold + result.goldEarned,
-      shards: current.shards + result.shardsEarned,
-      bestSurvival: Math.max(current.bestSurvival, result.survivalSeconds),
-      rank: rankFromSeconds(Math.max(current.bestSurvival, result.survivalSeconds)),
-    }))
-
-    setInventory((current) => {
-      const next = [result.loot, ...current]
-      setSelectedItemId(result.loot.id)
-      return next
+    const result = simulateExpedition({
+      archetype,
+      totalStats,
+      inventoryCount: inventory.length,
+      doctrine: selectedDoctrine,
     })
 
-    setExpeditionLog(result.lines)
-    setLastResult(result)
+    const animatedSteps = buildAnimatedTimeline(result, selectedDoctrine)
+    setTimelineSteps(
+      animatedSteps.map((step, index) => ({
+        ...step,
+        state: index === 0 ? 'active' : 'pending',
+      })),
+    )
+    setIsSimulating(true)
+    setLastResult(null)
+
+    let currentStep = 0
+    timerRef.current = window.setInterval(() => {
+      currentStep += 1
+
+      setTimelineSteps((current) =>
+        current.map((step, index) => ({
+          ...step,
+          state: index < currentStep ? 'done' : index === currentStep ? 'active' : 'pending',
+        })),
+      )
+
+      if (currentStep >= animatedSteps.length) {
+        if (timerRef.current) {
+          window.clearInterval(timerRef.current)
+          timerRef.current = null
+        }
+
+        setIsSimulating(false)
+        setTimelineSteps(animatedSteps.map((step) => ({ ...step, state: 'done' })))
+
+        setProfile((current) => ({
+          ...current,
+          doctrine: selectedDoctrine.name,
+          gold: current.gold + result.goldEarned,
+          shards: current.shards + result.shardsEarned,
+          bestSurvival: Math.max(current.bestSurvival, result.survivalSeconds),
+          rank: rankFromSeconds(Math.max(current.bestSurvival, result.survivalSeconds)),
+        }))
+
+        setInventory((current) => {
+          const next = [result.loot, ...current]
+          setSelectedItemId(result.loot.id)
+          return next
+        })
+
+        setExpeditionLog(result.lines)
+        setLastResult(result)
+      }
+    }, 650)
   }
+
+  const survivalPercent = Math.min(100, Math.round((profile.bestSurvival / 420) * 100))
 
   return (
     <main className="shell">
@@ -133,8 +209,13 @@ function App() {
           <p className="pitch">{APP_TAGLINE}</p>
 
           <div className="hero-actions">
-            <button type="button" className="primary-button" onClick={handleLaunchExpedition}>
-              Lancer l’expédition auto
+            <button
+              type="button"
+              className="primary-button"
+              onClick={handleLaunchExpedition}
+              disabled={isSimulating}
+            >
+              {isSimulating ? 'Expédition en cours…' : 'Lancer l’expédition auto'}
             </button>
             <button type="button" className="secondary-button">
               Voir le classement
@@ -192,7 +273,7 @@ function App() {
               </div>
               <div>
                 <span className="label">Doctrine active</span>
-                <strong>{profile.doctrine}</strong>
+                <strong>{selectedDoctrine.name}</strong>
               </div>
               <div>
                 <span className="label">Archétype</span>
@@ -211,6 +292,33 @@ function App() {
                   <strong>{stat.value}</strong>
                 </div>
               ))}
+            </div>
+          </article>
+
+          <article className="panel glass doctrine-panel">
+            <div className="section-title">
+              <span className="badge badge-soft">Doctrine</span>
+              <h2>Choix de combat</h2>
+            </div>
+            <div className="doctrine-list">
+              {doctrines.map((doctrine) => {
+                const isActive = doctrine.id === selectedDoctrine.id
+                return (
+                  <button
+                    key={doctrine.id}
+                    type="button"
+                    className={`doctrine-card ${isActive ? 'active' : ''}`}
+                    onClick={() => setSelectedDoctrineId(doctrine.id)}
+                    disabled={isSimulating}
+                  >
+                    <div className="doctrine-topline">
+                      <strong>{doctrine.name}</strong>
+                      <span className="score-chip">{doctrine.focus}</span>
+                    </div>
+                    <p>{doctrine.summary}</p>
+                  </button>
+                )
+              })}
             </div>
           </article>
 
@@ -282,21 +390,36 @@ function App() {
           <div className="panel-heading-row">
             <div className="section-title">
               <span className="badge badge-hot">Simulation</span>
-              <h2>Première expédition auto</h2>
+              <h2>Expédition auto animée</h2>
             </div>
             <p className="muted-copy">
-              Le résultat dépend déjà de ton archétype, de tes stats et du nombre d’objets disponibles.
+              La doctrine influe maintenant sur le run, et la timeline raconte visuellement la progression.
             </p>
           </div>
 
           <div className="simulation-grid">
-            <div className="simulation-arena glass-dark">
-              <div className="sim-enemy enemy-a"></div>
-              <div className="sim-enemy enemy-b"></div>
-              <div className="sim-enemy enemy-c"></div>
-              <div className={`sim-hero archetype-${normalizeClassName(archetype)}`}>
-                <div className="sim-weapon"></div>
-                <div className="sim-core"></div>
+            <div className="simulation-stack">
+              <div className="simulation-arena glass-dark">
+                <div className={`sim-pulse ${isSimulating ? 'running' : ''}`}></div>
+                <div className="sim-enemy enemy-a"></div>
+                <div className="sim-enemy enemy-b"></div>
+                <div className="sim-enemy enemy-c"></div>
+                <div className={`sim-hero archetype-${normalizeClassName(archetype)} ${isSimulating ? 'running' : ''}`}>
+                  <div className="sim-weapon"></div>
+                  <div className="sim-core"></div>
+                </div>
+              </div>
+
+              <div className="animated-timeline glass-dark">
+                {timelineSteps.map((step) => (
+                  <div key={step.id} className={`animated-step ${step.state}`}>
+                    <span className="animated-dot"></span>
+                    <div>
+                      <strong>{step.title}</strong>
+                      <p>{step.detail}</p>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
@@ -304,19 +427,37 @@ function App() {
               <span className="label">Dernier run</span>
               {lastResult ? (
                 <>
-                  <strong>{formatDuration(lastResult.survivalSeconds)} de survie</strong>
-                  <div className="sim-result-stats">
+                  <strong>{lastResult.outcomeLabel}</strong>
+                  <p className="highlight-line">{formatDuration(lastResult.survivalSeconds)} de survie</p>
+                  <div className="sim-result-stats readable">
                     <span>Palier {lastResult.stageReached}</span>
                     <span>{lastResult.kills} kills</span>
                     <span>+{lastResult.goldEarned} or</span>
                     <span>+{lastResult.shardsEarned} éclats</span>
                   </div>
+                  <div className="result-bars">
+                    <div>
+                      <div className="bar-header">
+                        <span>Danger</span>
+                        <strong>{lastResult.dangerRating}</strong>
+                      </div>
+                      <div className="progress-track"><div className="progress-fill danger" style={{ width: `${Math.min(100, lastResult.stageReached * 12)}%` }}></div></div>
+                    </div>
+                    <div>
+                      <div className="bar-header">
+                        <span>Record joueur</span>
+                        <strong>{survivalPercent}%</strong>
+                      </div>
+                      <div className="progress-track"><div className="progress-fill record" style={{ width: `${survivalPercent}%` }}></div></div>
+                    </div>
+                  </div>
+                  <p>{lastResult.doctrineImpact}</p>
                   <p>Loot obtenu: {lastResult.loot.name}</p>
                 </>
               ) : (
                 <>
                   <strong>Aucune expédition lancée</strong>
-                  <p>Appuie sur “Lancer l’expédition auto” pour générer un run et du loot.</p>
+                  <p>Choisis une doctrine puis lance le run pour voir une timeline animée.</p>
                 </>
               )}
             </div>
@@ -392,6 +533,24 @@ function App() {
   )
 }
 
+function buildIdleTimeline(): TimelineStep[] {
+  return [
+    { id: 'idle-1', title: 'Préparation', detail: 'Le héros attend les ordres du hub.', state: 'done' },
+    { id: 'idle-2', title: 'Doctrine', detail: 'Choisis un style de combat pour influencer le run.', state: 'done' },
+    { id: 'idle-3', title: 'Expédition', detail: 'Le prochain lancement animera cette timeline.', state: 'active' },
+  ]
+}
+
+function buildAnimatedTimeline(result: ExpeditionResult, doctrine: Doctrine): TimelineStep[] {
+  return [
+    { id: 'step-1', title: 'Déploiement', detail: `${doctrine.name} enclenchée dans les Ruines d’ambre.`, state: 'pending' },
+    { id: 'step-2', title: 'Premier contact', detail: `${Math.floor(result.kills * 0.28)} ennemis balayés proprement.`, state: 'pending' },
+    { id: 'step-3', title: 'Montée en pression', detail: `Le héros atteint le palier ${Math.max(2, result.stageReached - 1)}.`, state: 'pending' },
+    { id: 'step-4', title: 'Pic de run', detail: `${result.doctrineImpact}`, state: 'pending' },
+    { id: 'step-5', title: 'Chute et butin', detail: `${result.loot.name} récupéré avant le retour au hub.`, state: 'pending' },
+  ]
+}
+
 function stripSummary(item: InventoryItem): EquippedItem {
   const { summary, ...equippedItem } = item
   void summary
@@ -419,21 +578,36 @@ function simulateExpedition({
   archetype,
   totalStats,
   inventoryCount,
+  doctrine,
 }: {
   archetype: Archetype
   totalStats: Record<StatKey, number>
   inventoryCount: number
+  doctrine: Doctrine
 }): ExpeditionResult {
   const archetypeBonus = archetype === 'Mage' ? 18 : archetype === 'Guerrier' ? 14 : 16
   const survivalSeconds = Math.max(
     95,
-    totalStats.power * 4 + totalStats.range * 3 + totalStats.survival * 5 + totalStats.mobility * 3 + archetypeBonus,
+    totalStats.power * 4 +
+      totalStats.range * 3 +
+      totalStats.survival * 5 +
+      totalStats.mobility * 3 +
+      archetypeBonus +
+      doctrine.survivalBonus,
   )
-  const stageReached = Math.max(3, Math.floor(survivalSeconds / 42))
+  const stageReached = Math.max(3, Math.floor(survivalSeconds / 40))
   const kills = Math.floor(survivalSeconds * (archetype === 'Guerrier' ? 0.72 : archetype === 'Mage' ? 0.66 : 0.79))
   const goldEarned = 18 + Math.floor(survivalSeconds / 7)
   const shardsEarned = 2 + Math.floor(stageReached / 2)
-  const loot = generateLoot(archetype, totalStats, inventoryCount)
+  const loot = generateLoot(archetype, totalStats, inventoryCount, doctrine)
+  const dangerRating = stageReached >= 8 ? 'Extrême' : stageReached >= 6 ? 'Élevé' : 'Modéré'
+  const outcomeLabel = stageReached >= 8 ? 'Run monstrueux' : stageReached >= 6 ? 'Run solide' : 'Run correct'
+  const doctrineImpact =
+    doctrine.id === 'bastion-prudent'
+      ? 'La doctrine prudente a clairement prolongé la survie.'
+      : doctrine.id === 'chasseur-fulgurant'
+        ? 'La mobilité de la doctrine a accéléré le rythme du run.'
+        : 'La pression offensive a permis un bon nettoyage des vagues.'
 
   return {
     survivalSeconds,
@@ -442,8 +616,11 @@ function simulateExpedition({
     goldEarned,
     shardsEarned,
     loot,
+    dangerRating,
+    outcomeLabel,
+    doctrineImpact,
     lines: [
-      `${archetype} lancé dans les ${stageReached >= 7 ? 'Profondeurs de silex' : 'Ruines d’ambre'}`,
+      `${archetype} lancé avec la doctrine ${doctrine.name}`,
       `${kills} ennemis éliminés avant la chute du héros`,
       `Palier ${stageReached} atteint — survie ${formatDuration(survivalSeconds)}`,
       `Butin trouvé: ${loot.name} (${loot.rarity})`,
@@ -456,9 +633,17 @@ function generateLoot(
   archetype: Archetype,
   totalStats: Record<StatKey, number>,
   inventoryCount: number,
+  doctrine: Doctrine,
 ): InventoryItem {
-  const preferred = lootTable.find((item) => item.archetype === archetype)
-  const fallbackIndex = (totalStats.power + totalStats.mobility + inventoryCount) % lootTable.length
+  const preferred =
+    doctrine.lootBias === 'survival'
+      ? lootTable.find((item) => item.stats.survival >= 4)
+      : doctrine.lootBias === 'mobility'
+        ? lootTable.find((item) => item.stats.mobility >= 5)
+        : lootTable.find((item) => item.archetype === archetype)
+
+  const fallbackIndex =
+    (totalStats.power + totalStats.mobility + totalStats.range + inventoryCount) % lootTable.length
   const template = preferred ?? lootTable[fallbackIndex]
 
   return {

@@ -4,6 +4,16 @@ export type Archetype = 'Mage' | 'Guerrier' | 'Archer'
 
 export type StatKey = 'power' | 'range' | 'survival' | 'mobility'
 
+export type Doctrine = {
+  id: string
+  name: string
+  summary: string
+  focus: string
+  modifiers: Record<StatKey, number>
+  survivalBonus: number
+  lootBias: 'damage' | 'survival' | 'mobility'
+}
+
 export type PlayerProfile = {
   name: string
   title: string
@@ -202,6 +212,36 @@ export const expeditionEvents = [
   'Palier 6 atteint dans les Ruines d’ambre',
   '1 objet épique trouvé sur le boss coffre',
   'Prochain objectif: dépasser le top 15%',
+]
+
+export const doctrines: Doctrine[] = [
+  {
+    id: 'kite-agressif',
+    name: 'Kite agressif',
+    summary: 'Prend la distance, punition rapide, peu de marge si le run déraille.',
+    focus: 'DPS / portée',
+    modifiers: { power: 2, range: 3, survival: -1, mobility: 2 },
+    survivalBonus: 10,
+    lootBias: 'damage',
+  },
+  {
+    id: 'bastion-prudent',
+    name: 'Bastion prudent',
+    summary: 'Joue plus proprement, avance moins vite, tient mieux les paliers hauts.',
+    focus: 'Survie / stabilité',
+    modifiers: { power: -1, range: 0, survival: 4, mobility: 0 },
+    survivalBonus: 24,
+    lootBias: 'survival',
+  },
+  {
+    id: 'chasseur-fulgurant',
+    name: 'Chasseur fulgurant',
+    summary: 'Très mobile, nettoie vite, excellent pour les runs flashy.',
+    focus: 'Mobilité / exécution',
+    modifiers: { power: 1, range: 1, survival: 0, mobility: 4 },
+    survivalBonus: 14,
+    lootBias: 'mobility',
+  },
 ]
 
 export const lootTable: LootTemplate[] = [
