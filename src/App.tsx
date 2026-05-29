@@ -44,14 +44,15 @@ type LiveEnemy = {
   hp: number
   maxHp: number
   size: number
+  speed: number
 }
 
 type LiveProjectile = {
   id: string
   x: number
   y: number
-  tx: number
-  ty: number
+  vx: number
+  vy: number
 }
 
 type LiveBattle = {
@@ -62,11 +63,28 @@ type LiveBattle = {
   attackFlash: boolean
   elapsedLabel: string
   kills: number
-  stage: number
+  wave: number
   enemies: LiveEnemy[]
   projectiles: LiveProjectile[]
   floatingText: string
   state: 'running' | 'dying' | 'finished'
+}
+
+type BattleRuntime = {
+  result: ExpeditionResult
+  tick: number
+  maxTicks: number
+  wave: number
+  nextEnemyId: number
+  nextProjectileId: number
+  heroX: number
+  heroY: number
+  heroHP: number
+  kills: number
+  cooldown: number
+  wavePause: number
+  enemies: LiveEnemy[]
+  projectiles: LiveProjectile[]
 }
 
 function App() {
@@ -83,16 +101,7 @@ function App() {
 
   const battleTimerRef = useRef<number | null>(null)
   const finishTimerRef = useRef<number | null>(null)
-  const battleStateRef = useRef<{
-    tick: number
-    maxTicks: number
-    result: ExpeditionResult | null
-    enemies: LiveEnemy[]
-    projectiles: LiveProjectile[]
-    nextProjectileId: number
-    nextEnemyId: number
-    killCount: number
-  } | null>(null)
+  const runtimeRef = useRef<BattleRuntime | null>(null)
 
   const selectedItem = useMemo(
     () => inventory.find((item) => item.id === selectedItemId) ?? inventory[0] ?? null,
@@ -164,10 +173,7 @@ function App() {
     setInventory((current) => {
       const next = current.filter((item) => item.id !== selectedItem.id)
       if (!previous) return next
-      return [
-        { ...previous, summary: `Ancien équipement retiré du héros. ${previous.bonus}.` },
-        ...next,
-      ]
+      return [{ ...previous, summary: `Ancien équipement retiré du héros. ${previous.bonus}.` }, ...next]
     })
   }
 
@@ -183,174 +189,208 @@ function App() {
       doctrine: selectedDoctrine,
     })
 
-    const maxTicks = Math.max(42, Math.min(80, Math.floor(result.survivalSeconds / 3)))
-    const enemies = spawnEnemies(4, 0)
-
-    battleStateRef.current = {
-      tick: 0,
-      maxTicks,
+    runtimeRef.current = {
       result,
-      enemies,
+      tick: 0,
+      maxTicks: Math.max(120, Math.floor(result.survivalSeconds * 1.9)),
+      wave: 1,
+      nextEnemyId: 1,
+      nextProjectileId: 1,
+      heroX: 26,
+      heroY: 54,
+      heroHP: 100,
+      kills: 0,
+      cooldown: 0,
+      wavePause: 0,
+      enemies: createWaveEnemies(1, 1),
       projectiles: [],
-      nextProjectileId: 0,
-      nextEnemyId: enemies.length,
-      killCount: 0,
     }
 
     setShowExpeditionWindow(true)
     setIsSimulating(true)
     setLastResult(null)
-    setTimelineSteps(buildAnimatedTimeline(result, selectedDoctrine).map((step, index) => ({
-      ...step,
-      state: index === 0 ? 'active' : 'pending',
-    })))
+    setTimelineSteps(buildAnimatedTimeline(result, selectedDoctrine, 1))
+    setBattle(snapshotFromRuntime(runtimeRef.current, archetype, 'Un ennemi approche', true))
 
-    setBattle({
-      heroX: 24,
-      heroY: 56,
-      heroHP: 100,
-      heroFacing: 'right',
-      attackFlash: false,
-      elapsedLabel: '00:00',
-      kills: 0,
-      stage: 1,
-      enemies,
-      projectiles: [],
-      floatingText: 'Déploiement',
-      state: 'running',
-    })
-
-    battleTimerRef.current = window.setInterval(runBattleTick, 110)
+    battleTimerRef.current = window.setInterval(runBattleTick, 90)
   }
 
   function runBattleTick() {
-    const state = battleStateRef.current
-    if (!state || !state.result) return
+    const runtime = runtimeRef.current
+    if (!runtime) return
 
-    state.tick += 1
-    const progress = Math.min(1, state.tick / state.maxTicks)
-    const result = state.result
-    const stage = Math.max(1, Math.min(result.stageReached, 1 + Math.floor(progress * result.stageReached)))
-    const elapsedSeconds = Math.round(result.survivalSeconds * progress)
-    const heroX = 22 + progress * 44 + Math.sin(state.tick / 5) * 3
-    const heroY = 54 + Math.sin(state.tick / 3.5) * 5
-    const heroHP = Math.max(0, 100 - Math.round(progress * 100))
+    runtime.tick += 1
+    const progress = Math.min(1, runtime.tick / runtime.maxTicks)
+    const elapsedSeconds = Math.round(runtime.result.survivalSeconds * progress)
 
-    if (state.tick % 4 === 0 && state.enemies.length > 0) {
-      const target = state.enemies[state.tick % state.enemies.length]
-      state.projectiles.push({
-        id: `p-${state.nextProjectileId++}`,
-        x: heroX + 2,
-        y: heroY - 2,
-        tx: target.x,
-        ty: target.y,
-      })
+    if (runtime.wavePause > 0) {
+      runtime.wavePause -= 1
+    } else {
+      updateHero(runtime)
+      updateEnemies(runtime)
+      updateProjectiles(runtime)
+      maybeShoot(runtime)
+      maybeAdvanceWave(runtime)
     }
 
-    state.projectiles = state.projectiles
-      .map((projectile) => {
-        const dx = projectile.tx - projectile.x
-        const dy = projectile.ty - projectile.y
-        const distance = Math.max(1, Math.hypot(dx, dy))
-        const step = 6 + totalStats.range * 0.08
-        return {
-          ...projectile,
-          x: projectile.x + (dx / distance) * step,
-          y: projectile.y + (dy / distance) * step,
-        }
-      })
-      .filter((projectile) => projectile.x < 110 && projectile.y > -10 && projectile.y < 110)
+    const state: LiveBattle['state'] = runtime.heroHP <= 0 ? 'finished' : progress > 0.92 ? 'dying' : 'running'
+    const floatingText = getFloatingText(runtime, progress)
 
-    const updatedEnemies: LiveEnemy[] = []
-    const remainingProjectiles: LiveProjectile[] = []
+    setBattle(snapshotFromRuntime(runtime, archetype, floatingText, runtime.tick % 3 === 0, state, elapsedSeconds))
+    setTimelineSteps(updateTimelineStates(runtime))
 
-    for (const projectile of state.projectiles) {
-      let hit = false
-      for (const enemy of state.enemies) {
-        const hitDistance = Math.hypot(projectile.x - enemy.x, projectile.y - enemy.y)
-        if (!hit && hitDistance < enemy.size * 0.18 + 2) {
-          enemy.hp -= 22 + totalStats.power * 0.7
-          hit = true
-        }
-      }
-      if (!hit) remainingProjectiles.push(projectile)
+    const forcedEnd = progress >= 1 && runtime.heroHP > 0
+    if (forcedEnd) {
+      runtime.heroHP = 0
     }
 
-    for (const enemy of state.enemies) {
-      const pushX = enemy.x - progress * 8 - Math.sin((state.tick + enemy.size) / 7)
-      const pushY = enemy.y + Math.cos((state.tick + enemy.size) / 9) * 1.8
-      if (enemy.hp <= 0) {
-        state.killCount += 1
-        continue
-      }
-      updatedEnemies.push({ ...enemy, x: pushX, y: pushY })
-    }
-
-    if (updatedEnemies.length < 3) {
-      const refill = spawnEnemies(1 + ((state.tick / 9) % 2), progress, state.nextEnemyId)
-      state.nextEnemyId += refill.length
-      updatedEnemies.push(...refill)
-    }
-
-    state.enemies = updatedEnemies
-    state.projectiles = remainingProjectiles
-
-    const floatingText =
-      progress < 0.18
-        ? 'Engagement'
-        : progress < 0.45
-          ? `Combo x${Math.max(2, Math.floor(state.killCount / 3) + 1)}`
-          : progress < 0.72
-            ? `Palier ${stage}`
-            : progress < 0.92
-              ? 'La pression monte'
-              : 'Dernier souffle'
-
-    setBattle({
-      heroX,
-      heroY,
-      heroHP,
-      heroFacing: progress > 0.78 ? 'left' : 'right',
-      attackFlash: state.tick % 2 === 0,
-      elapsedLabel: formatDuration(elapsedSeconds),
-      kills: Math.min(result.kills, state.killCount),
-      stage,
-      enemies: updatedEnemies,
-      projectiles: remainingProjectiles,
-      floatingText,
-      state: progress >= 0.93 ? 'dying' : 'running',
-    })
-
-    setTimelineSteps((current) =>
-      current.map((step, index) => {
-        const threshold = (index + 1) / current.length
-        if (progress >= threshold) return { ...step, state: 'done' }
-        if (progress >= threshold - 0.18) return { ...step, state: 'active' }
-        return { ...step, state: 'pending' }
-      }),
-    )
-
-    if (state.tick >= state.maxTicks) {
+    if (runtime.heroHP <= 0 || progress >= 1) {
       clearAllTimers()
-      setBattle((current) =>
-        current
-          ? {
-              ...current,
-              heroHP: 0,
-              attackFlash: false,
-              elapsedLabel: formatDuration(result.survivalSeconds),
-              kills: result.kills,
-              stage: result.stageReached,
-              floatingText: 'Défaite',
-              state: 'finished',
-            }
-          : current,
-      )
-      finalizeRun(result)
+      finalizeRun(runtime.result, runtime.kills, runtime.wave)
     }
   }
 
-  function finalizeRun(result: ExpeditionResult) {
+  function updateHero(runtime: BattleRuntime) {
+    const target = getPrimaryTarget(runtime.enemies)
+    if (!target) return
+
+    const preferredDistance = archetype === 'Guerrier' ? 12 : archetype === 'Mage' ? 26 : 22
+    const dx = target.x - runtime.heroX
+    const dy = target.y - runtime.heroY
+    const distance = Math.max(1, Math.hypot(dx, dy))
+    const moveSpeed = 0.9 + totalStats.mobility * 0.03
+
+    if (distance > preferredDistance + 2) {
+      runtime.heroX += (dx / distance) * moveSpeed
+      runtime.heroY += (dy / distance) * moveSpeed * 0.55
+    } else if (distance < preferredDistance - 4) {
+      runtime.heroX -= (dx / distance) * moveSpeed * 0.8
+      runtime.heroY -= (dy / distance) * moveSpeed * 0.45
+    }
+
+    runtime.heroX = clamp(runtime.heroX, 14, 72)
+    runtime.heroY = clamp(runtime.heroY, 18, 84)
+  }
+
+  function updateEnemies(runtime: BattleRuntime) {
+    const heroThreat = archetype === 'Guerrier' ? 3.4 : 2.6
+
+    runtime.enemies = runtime.enemies
+      .map((enemy) => {
+        const dx = runtime.heroX - enemy.x
+        const dy = runtime.heroY - enemy.y
+        const distance = Math.max(1, Math.hypot(dx, dy))
+        const speed = enemy.speed + runtime.wave * 0.02
+        const nextX = enemy.x + (dx / distance) * speed
+        const nextY = enemy.y + (dy / distance) * speed
+        let hp = enemy.hp
+
+        if (distance < enemy.size * 0.13 + heroThreat) {
+          runtime.heroHP = Math.max(0, runtime.heroHP - (0.55 + runtime.wave * 0.08))
+          hp -= archetype === 'Guerrier' ? 2.4 : 0
+        }
+
+        return {
+          ...enemy,
+          x: nextX,
+          y: nextY,
+          hp,
+        }
+      })
+      .filter((enemy) => {
+        if (enemy.hp <= 0) {
+          runtime.kills += 1
+          return false
+        }
+        return true
+      })
+  }
+
+  function maybeShoot(runtime: BattleRuntime) {
+    if (runtime.cooldown > 0) {
+      runtime.cooldown -= 1
+      return
+    }
+
+    const target = getPrimaryTarget(runtime.enemies)
+    if (!target) return
+
+    const dx = target.x - runtime.heroX
+    const dy = target.y - runtime.heroY
+    const distance = Math.max(1, Math.hypot(dx, dy))
+    const projectileSpeed = archetype === 'Archer' ? 3.8 : archetype === 'Mage' ? 3.3 : 4.1
+
+    if (distance < 42) {
+      runtime.projectiles.push({
+        id: `proj-${runtime.nextProjectileId++}`,
+        x: runtime.heroX,
+        y: runtime.heroY,
+        vx: (dx / distance) * projectileSpeed,
+        vy: (dy / distance) * projectileSpeed,
+      })
+      runtime.cooldown = archetype === 'Archer' ? 4 : archetype === 'Mage' ? 6 : 5
+    }
+  }
+
+  function updateProjectiles(runtime: BattleRuntime) {
+    const nextProjectiles: LiveProjectile[] = []
+
+    for (const projectile of runtime.projectiles) {
+      const moved = {
+        ...projectile,
+        x: projectile.x + projectile.vx,
+        y: projectile.y + projectile.vy,
+      }
+
+      let hit = false
+      for (const enemy of runtime.enemies) {
+        const distance = Math.hypot(moved.x - enemy.x, moved.y - enemy.y)
+        if (distance < enemy.size * 0.16 + 1.6) {
+          enemy.hp -= getProjectileDamage(totalStats.power, archetype)
+          hit = true
+          break
+        }
+      }
+
+      if (!hit && moved.x >= 0 && moved.x <= 105 && moved.y >= 0 && moved.y <= 105) {
+        nextProjectiles.push(moved)
+      }
+    }
+
+    runtime.projectiles = nextProjectiles
+  }
+
+  function maybeAdvanceWave(runtime: BattleRuntime) {
+    if (runtime.enemies.length > 0) return
+
+    if (runtime.wave >= runtime.result.stageReached) {
+      runtime.heroHP = 0
+      return
+    }
+
+    runtime.wave += 1
+    runtime.wavePause = 7
+    runtime.cooldown = 0
+    runtime.projectiles = []
+    runtime.enemies = createWaveEnemies(runtime.wave, runtime.nextEnemyId)
+    runtime.nextEnemyId += runtime.enemies.length
+    setTimelineSteps(buildAnimatedTimeline(runtime.result, selectedDoctrine, runtime.wave))
+  }
+
+  function finalizeRun(baseResult: ExpeditionResult, liveKills: number, liveWave: number) {
+    const result: ExpeditionResult = {
+      ...baseResult,
+      kills: Math.max(liveKills, baseResult.kills),
+      stageReached: Math.max(liveWave, baseResult.stageReached),
+      lines: [
+        `${archetype} lancé avec la doctrine ${selectedDoctrine.name}`,
+        `${Math.max(liveKills, baseResult.kills)} ennemis réellement éliminés`,
+        `Vague ${Math.max(liveWave, baseResult.stageReached)} atteinte — survie ${formatDuration(baseResult.survivalSeconds)}`,
+        `Butin trouvé: ${baseResult.loot.name} (${baseResult.loot.rarity})`,
+        `Récompenses: +${baseResult.goldEarned} or, +${baseResult.shardsEarned} éclats`,
+      ],
+    }
+
     setProfile((current) => ({
       ...current,
       doctrine: selectedDoctrine.name,
@@ -365,6 +405,18 @@ function App() {
       setSelectedItemId(result.loot.id)
       return next
     })
+
+    setBattle((current) =>
+      current
+        ? {
+            ...current,
+            heroHP: 0,
+            attackFlash: false,
+            floatingText: 'Défaite',
+            state: 'finished',
+          }
+        : current,
+    )
 
     setLastResult(result)
     setIsSimulating(false)
@@ -394,7 +446,7 @@ function App() {
             <p className="eyebrow">Menu principal</p>
             <h1>{APP_NAME}</h1>
             <p className="game-pitch">
-              Monte ton build, choisis une doctrine, puis balance ton héros dans l’arène jusqu’à la mort.
+              Monte ton build, choisis une doctrine, puis envoie ton héros survivre vague après vague.
             </p>
 
             <div className="hero-actions">
@@ -478,7 +530,7 @@ function App() {
               <span className="badge badge-soft">Équipement</span>
               <h2>Build actuel</h2>
             </div>
-            <p className="muted-copy">Moins dashboard, plus sélection de build de jeu vidéo.</p>
+            <p className="muted-copy">Le build influence vraiment la cadence, la portée et la survie.</p>
           </div>
 
           <div className="equipment-grid">
@@ -502,7 +554,7 @@ function App() {
               <span className="badge badge-hot">Expédition</span>
               <h2>Retour de run</h2>
             </div>
-            <p className="muted-copy">La scène de combat tourne maintenant comme un vrai petit combat live.</p>
+            <p className="muted-copy">Le combat progresse maintenant par vraies vagues 1, puis 2, puis 3, etc.</p>
           </div>
 
           <div className="simulation-grid">
@@ -525,7 +577,7 @@ function App() {
                   <strong>{lastResult.outcomeLabel}</strong>
                   <p className="highlight-line">{formatDuration(lastResult.survivalSeconds)} de survie</p>
                   <div className="sim-result-stats">
-                    <span>Palier {lastResult.stageReached}</span>
+                    <span>Vague {lastResult.stageReached}</span>
                     <span>{lastResult.kills} kills</span>
                     <span>+{lastResult.goldEarned} or</span>
                     <span>+{lastResult.shardsEarned} éclats</span>
@@ -546,7 +598,7 @@ function App() {
               ) : (
                 <>
                   <strong>Prêt pour le prochain run</strong>
-                  <p>Lance une expédition pour ouvrir un vrai combat live.</p>
+                  <p>Lance une expédition pour voir un vrai focus cible par cible.</p>
                 </>
               )}
             </div>
@@ -675,14 +727,14 @@ function App() {
                   <div className="battle-mini-stats">
                     <span>Temps {battle.elapsedLabel}</span>
                     <span>Kills {battle.kills}</span>
-                    <span>Palier {battle.stage}</span>
+                    <span>Vague {battle.wave}</span>
                     <span>Doctrine {selectedDoctrine.name}</span>
                   </div>
                 </div>
 
                 <div className="battle-stats-box glass">
-                  <div className="bar-header"><span>Vie</span><strong>{battle.heroHP}%</strong></div>
-                  <div className="progress-track"><div className="progress-fill hp" style={{ width: `${battle.heroHP}%` }}></div></div>
+                  <div className="bar-header"><span>Vie</span><strong>{Math.max(0, Math.round(battle.heroHP))}%</strong></div>
+                  <div className="progress-track"><div className="progress-fill hp" style={{ width: `${Math.max(0, battle.heroHP)}%` }}></div></div>
                 </div>
 
                 <div className="battle-stats-box glass">
@@ -705,6 +757,55 @@ function App() {
   )
 }
 
+function snapshotFromRuntime(
+  runtime: BattleRuntime,
+  archetype: Archetype,
+  floatingText: string,
+  attackFlash: boolean,
+  state: LiveBattle['state'] = 'running',
+  elapsedSeconds = 0,
+): LiveBattle {
+  return {
+    heroX: runtime.heroX,
+    heroY: runtime.heroY,
+    heroHP: runtime.heroHP,
+    heroFacing: ((getPrimaryTarget(runtime.enemies)?.x ?? 100) > runtime.heroX ? 'right' : 'left'),
+    attackFlash,
+    elapsedLabel: formatDuration(elapsedSeconds),
+    kills: runtime.kills,
+    wave: runtime.wave,
+    enemies: runtime.enemies.map((enemy) => ({ ...enemy })),
+    projectiles: runtime.projectiles.map((projectile) => ({ ...projectile })),
+    floatingText:
+      state === 'finished'
+        ? 'Défaite'
+        : archetype === 'Guerrier' && attackFlash
+          ? 'Impact'
+          : floatingText,
+    state,
+  }
+}
+
+function getPrimaryTarget(enemies: LiveEnemy[]) {
+  return [...enemies].sort((a, b) => a.x - b.x)[0]
+}
+
+function getFloatingText(runtime: BattleRuntime, progress: number) {
+  if (runtime.wavePause > 0) return `Vague ${runtime.wave} en approche`
+  if (progress < 0.15) return 'Ouverture du combat'
+  if (runtime.enemies.length === 1) return 'Duel'
+  if (runtime.enemies.length === 2) return 'Double menace'
+  if (runtime.enemies.length >= 3) return `Pression x${runtime.enemies.length}`
+  return 'Nettoyage'
+}
+
+function updateTimelineStates(runtime: BattleRuntime): TimelineStep[] {
+  return buildAnimatedTimeline(runtime.result, doctrines[0], runtime.wave).map((step, index, arr) => ({
+    ...step,
+    state: index < Math.min(runtime.wave, arr.length) - 1 ? 'done' : index === Math.min(runtime.wave, arr.length) - 1 ? 'active' : 'pending',
+  })) as TimelineStep[]
+}
+
 function buildIdleTimeline(): TimelineStep[] {
   return [
     { id: 'idle-1', title: 'Chargement du héros', detail: 'Le build attend dans le menu principal.', state: 'done' },
@@ -713,31 +814,43 @@ function buildIdleTimeline(): TimelineStep[] {
   ]
 }
 
-function buildAnimatedTimeline(result: ExpeditionResult, doctrine: Doctrine): TimelineStep[] {
+function buildAnimatedTimeline(result: ExpeditionResult, doctrine: Doctrine, wave: number): TimelineStep[] {
   return [
-    { id: 'step-1', title: 'Déploiement', detail: `${doctrine.name} enclenchée.`, state: 'pending' },
-    { id: 'step-2', title: 'Nettoyage', detail: `${Math.floor(result.kills * 0.28)} ennemis tombent vite.`, state: 'pending' },
-    { id: 'step-3', title: 'Montée en tension', detail: `Le héros grimpe jusqu’au palier ${Math.max(2, result.stageReached - 1)}.`, state: 'pending' },
-    { id: 'step-4', title: 'Moment critique', detail: result.doctrineImpact, state: 'pending' },
-    { id: 'step-5', title: 'Dernier souffle', detail: `${result.loot.name} sauvé avant la mort.`, state: 'pending' },
+    { id: 'step-1', title: 'Vague 1', detail: `Premier duel sous ${doctrine.name}.`, state: wave >= 1 ? 'active' : 'pending' },
+    { id: 'step-2', title: 'Vague 2', detail: 'Deux ennemis mettent la pression.', state: wave >= 2 ? 'active' : 'pending' },
+    { id: 'step-3', title: 'Vague 3', detail: 'Le run devient vraiment sérieux.', state: wave >= 3 ? 'active' : 'pending' },
+    { id: 'step-4', title: 'Vagues hautes', detail: `Objectif actuel: atteindre la vague ${result.stageReached}.`, state: wave >= 4 ? 'active' : 'pending' },
+    { id: 'step-5', title: 'Chute', detail: result.doctrineImpact, state: 'pending' },
   ]
 }
 
-function spawnEnemies(count: number, progress = 0, startIndex = 0): LiveEnemy[] {
+function createWaveEnemies(wave: number, startIndex: number): LiveEnemy[] {
+  const count = Math.min(6, wave)
   return Array.from({ length: count }, (_, index) => ({
     id: `enemy-${startIndex + index}`,
-    x: 66 + index * 8 - progress * 4,
-    y: 26 + ((index * 19) % 42),
-    size: 34 + ((index + 1) % 3) * 8,
-    hp: 70 + ((index + 1) % 3) * 18,
-    maxHp: 70 + ((index + 1) % 3) * 18,
+    x: 78 + index * 6,
+    y: 24 + ((index * 21 + wave * 7) % 44),
+    size: 34 + (index % 3) * 8,
+    hp: 52 + wave * 16 + index * 10,
+    maxHp: 52 + wave * 16 + index * 10,
+    speed: 0.34 + wave * 0.03 + index * 0.02,
   }))
+}
+
+function getProjectileDamage(power: number, archetype: Archetype) {
+  if (archetype === 'Guerrier') return 26 + power * 0.9
+  if (archetype === 'Archer') return 20 + power * 0.72
+  return 24 + power * 0.82
 }
 
 function stripSummary(item: InventoryItem): EquippedItem {
   const { summary, ...equippedItem } = item
   void summary
   return equippedItem
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
 }
 
 function formatDuration(seconds: number) {
@@ -807,7 +920,7 @@ function simulateExpedition({
     lines: [
       `${archetype} lancé avec la doctrine ${doctrine.name}`,
       `${kills} ennemis éliminés avant la chute du héros`,
-      `Palier ${stageReached} atteint — survie ${formatDuration(survivalSeconds)}`,
+      `Vague ${stageReached} atteinte — survie ${formatDuration(survivalSeconds)}`,
       `Butin trouvé: ${loot.name} (${loot.rarity})`,
       `Récompenses: +${goldEarned} or, +${shardsEarned} éclats`,
     ],
